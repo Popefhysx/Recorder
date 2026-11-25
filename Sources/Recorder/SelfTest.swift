@@ -458,7 +458,8 @@ enum SelfTest {
         try info.run(); info.waitUntilExit()
         check(info.terminationStatus == 0, "afinfo reads the exported WAV")
 
-        // 5. Save and reopen.
+        // 5. Save and reopen. Monitoring is saved on, and must come back off.
+        onMain { session.project.tracks[0].monitor = true }
         try onMain { Result { try session.save() } }.get()
         let reopened: Project = try onMain {
             Result {
@@ -468,8 +469,10 @@ enum SelfTest {
             }
         }.get()
         var expected = onMain { session.project }
-        for i in expected.tracks.indices { expected.tracks[i].armed = false }
+        for i in expected.tracks.indices { expected.tracks[i].armed = false; expected.tracks[i].monitor = false }
         check(reopened == expected, "project saves and reopens unchanged")
+        check(!reopened.tracks.contains { $0.monitor }, "opening a project starts with live monitoring off")
+        onMain { session.project.tracks[0].monitor = false }
     }
 
     static func writeTone(_ url: URL, frequency: Double, amplitude: Float, seconds: Double) throws {

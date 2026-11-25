@@ -687,7 +687,9 @@ final class Session: ObservableObject {
         folder = url
         isUntitled = false
         var p = loaded
-        for i in p.tracks.indices { p.tracks[i].armed = false }   // don't open the mic just by opening
+        // Opening a project never opens the mic or starts live monitoring: monitoring a boosted input
+        // that nobody is using is a constant hiss in the headphones.
+        for i in p.tracks.indices { p.tracks[i].armed = false; p.tracks[i].monitor = false }
         project = p
         savedProject = p
         undoStack = []; redoStack = []
