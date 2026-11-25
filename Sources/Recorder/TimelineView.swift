@@ -313,8 +313,8 @@ struct ClipView: View {
                 Spacer(minLength: 0)
                 handle(.trimEnd).frame(width: 7)
             }
-            if c.originalFile != nil {
-                Label("Denoised", systemImage: "sparkles").font(.system(size: 10, weight: .semibold))
+            if let used = c.cleanup {
+                Label(used.title, systemImage: "sparkles").font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Theme.purple).padding(.horizontal, 6).frame(height: 16)
                     .background(Capsule().fill(.white.opacity(0.85)))
                     .offset(x: 18, y: h - 22).allowsHitTesting(false)
@@ -331,8 +331,9 @@ struct ClipView: View {
             Button("Delete Clip") { session.selection = ref; session.deleteSelectedClip() }
             Button("Remove Fades") { session.updateClip(ref) { $0.fadeIn = 0; $0.fadeOut = 0 } }
             Divider()
-            Button(clip.originalFile == nil ? "Denoise…" : "Denoise Again…") { session.selection = ref; session.denoiseTarget = ref }
-            if clip.originalFile != nil { Button("Remove Denoise") { session.removeDenoise(ref) } }
+            Button("Denoise…") { session.selection = ref; session.cleanupTarget = .init(ref: ref, tool: .denoise) }
+            Button("Voice Clean…") { session.selection = ref; session.cleanupTarget = .init(ref: ref, tool: .voiceClean) }
+            if let used = clip.cleanup { Button("Remove \(used.title)") { session.removeCleanup(ref) } }
         }
         .offset(x: clip.start * pps + laneInset, y: 6)
         .onAppear { if let audio = session.audioFolder { waveforms.load(clip.file, folder: audio) } }

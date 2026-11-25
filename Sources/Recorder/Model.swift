@@ -141,6 +141,12 @@ struct DelaySettings: Codable, Equatable {
     func seconds(tempo: Double) -> Double { min(2, Self.beats[min(max(0, note), Self.beats.count - 1)] * 60 / tempo) }
 }
 
+enum CleanupTool: String, Codable {
+    case denoise, voiceClean
+    var title: String { self == .denoise ? "Denoise" : "Voice Clean" }
+    var fileSuffix: String { self == .denoise ? "denoised" : "voice clean" }
+}
+
 struct Clip: Codable, Equatable, Identifiable {
     var id = UUID()
     var file: String             // file name inside Audio/
@@ -150,8 +156,9 @@ struct Clip: Codable, Equatable, Identifiable {
     var duration: Double         // seconds
     var fadeIn: Double = 0
     var fadeOut: Double = 0
-    /// The untouched recording when `file` is a processed copy (Denoise); nil otherwise.
+    /// The untouched recording when `file` is a cleaned copy (Denoise, Voice Clean); nil otherwise.
     var originalFile: String?
+    var cleanup: CleanupTool?
 
     var end: Double { start + duration }
 

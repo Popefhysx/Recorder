@@ -195,11 +195,12 @@ final class Session: ObservableObject {
         project.tracks.first { $0.id == ref.track }?.clips.first { $0.id == ref.clip }
     }
 
-    // MARK: denoise
+    // MARK: clean-up (Denoise, Voice Clean)
 
-    /// The clip the Denoise sheet is open for.
-    @Published var denoiseTarget: ClipRef?
-    @Published var denoiseProgress: Double?
+    /// What the clean-up sheet is open for.
+    struct CleanupRequest: Equatable { var ref: ClipRef; var tool: CleanupTool }
+    @Published var cleanupTarget: CleanupRequest?
+    @Published var cleanupProgress: Double?
 
     /// The part of the loop region that lies over the clip, as seconds in the clip's file.
     func loopNoiseRange(_ ref: ClipRef) -> Range<Double>? {
@@ -209,32 +210,47 @@ final class Session: ObservableObject {
         return (c.offset + a - c.start)..<(c.offset + b - c.start)
     }
 
-    /// Writes a denoised copy of the clip's recording and points the clip (and any other clip cut
+    enum Cleanup {
+        case denoise(reduction: Float, fromLoop: Bool)
+        case voiceClean(strength: Float)
+        var tool: CleanupTool { if case .denoise = self { .denoise } else { .voiceClean } }
+    }
+
+    /// Writes a cleaned copy of the clip's recording and points the clip (and any other clip cut
     /// from the same recording) at it. Always works from the untouched original, so running it
     /// again replaces the earlier result instead of stacking.
-    func denoise(_ ref: ClipRef, reduction: Float, fromLoop: Bool, completion: ((Bool) -> Void)? = nil) {
-        guard !isRecording, denoiseProgress == nil, let audio = audioFolder, let c = clip(ref) else { completion?(false); return }
+    func cleanUp(_ ref: ClipRef, _ how: Cleanup, completion: ((Bool) -> Void)? = nil) {
+        guard !isRecording, cleanupProgress == nil, let audio = audioFolder, let c = clip(ref) else { completion?(false); return }
         let source = c.originalFile ?? c.file
         let current = c.file
-        let range = fromLoop ? loopNoiseRange(ref) : nil
-        if fromLoop, range == nil {
-            problem = "Put the loop region over a part of this clip that is only noise (at least 0.2 s), then try again."
-            completion?(false); return
+        var range: Range<Double>?
+        if case .denoise(_, true) = how {
+            range = loopNoiseRange(ref)
+            if range == nil {
+                problem = "Put the loop region over a part of this clip that is only noise (at least 0.2 s), then try again."
+                completion?(false); return
+            }
         }
-        let base = ((source as NSString).deletingPathExtension) + " denoised"
+        let tool = how.tool
+        let base = ((source as NSString).deletingPathExtension) + " " + tool.fileSuffix
         var name = base + ".wav", n = 2
         while FileManager.default.fileExists(atPath: audio.appendingPathComponent(name).path) { name = "\(base) \(n).wav"; n += 1 }
         let src = audio.appendingPathComponent(source), dest = audio.appendingPathComponent(name)
-        denoiseProgress = 0
+        cleanupProgress = 0
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result = Result {
-                try Denoise.process(source: src, dest: dest, options: .init(reduction: reduction, profile: range)) { p in
-                    DispatchQueue.main.async { self?.denoiseProgress = p }
+                switch how {
+                case .denoise(let reduction, _):
+                    try Denoise.process(source: src, dest: dest, options: .init(reduction: reduction, profile: range)) { p in
+                        DispatchQueue.main.async { self?.cleanupProgress = p }
+                    }
+                case .voiceClean(let strength):
+                    try VoiceClean.process(source: src, dest: dest, strength: strength)
                 }
             }
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.denoiseProgress = nil
+                self.cleanupProgress = nil
                 switch result {
                 case .success:
                     var p = self.project
@@ -242,6 +258,7 @@ final class Session: ObservableObject {
                         for i in p.tracks[t].clips.indices where p.tracks[t].clips[i].file == current {
                             p.tracks[t].clips[i].file = name
                             p.tracks[t].clips[i].originalFile = source
+                            p.tracks[t].clips[i].cleanup = tool
                         }
                     }
                     self.waveforms.load(name, folder: audio)
@@ -250,7 +267,7 @@ final class Session: ObservableObject {
                     completion?(true)
                 case .failure(let error):
                     try? FileManager.default.removeItem(at: dest)
-                    self.problem = "Denoise failed: \(error.localizedDescription)"
+                    self.problem = error.localizedDescription
                     completion?(false)
                 }
             }
@@ -258,13 +275,14 @@ final class Session: ObservableObject {
     }
 
     /// Puts the original recording back on the clip (and the other clips sharing its file).
-    func removeDenoise(_ ref: ClipRef) {
+    func removeCleanup(_ ref: ClipRef) {
         guard let c = clip(ref), let original = c.originalFile else { return }
         var p = project
         for t in p.tracks.indices {
             for i in p.tracks[t].clips.indices where p.tracks[t].clips[i].file == c.file {
                 p.tracks[t].clips[i].file = original
                 p.tracks[t].clips[i].originalFile = nil
+                p.tracks[t].clips[i].cleanup = nil
             }
         }
         if let audio = audioFolder { waveforms.load(original, folder: audio) }
@@ -831,7 +849,7 @@ final class Session: ObservableObject {
     func unusedAudio() -> [URL] {
         guard let audio = audioFolder,
               let files = try? FileManager.default.contentsOfDirectory(at: audio, includingPropertiesForKeys: nil) else { return [] }
-        // Originals behind denoised clips count as used: Remove Denoise needs them.
+        // Originals behind cleaned clips count as used: Remove Clean-up needs them.
         let used = Set(project.tracks.flatMap(\.clips).flatMap { [$0.file, $0.originalFile].compactMap { $0 } })
         return files.filter { $0.pathExtension.lowercased() == "wav" && !used.contains($0.lastPathComponent) }
     }

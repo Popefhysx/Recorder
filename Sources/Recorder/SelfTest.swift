@@ -349,7 +349,7 @@ enum SelfTest {
 
         // Denoise: a tone with hiss and 50 Hz hum under it, cleaned from an automatic noise print.
         var seed: UInt64 = 42
-        func noise() -> Float { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Float(Int64(bitPattern: seed >> 11) % 2000 - 1000) / 1000 }
+        func noise() -> Float { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Float(seed >> 40) / Float(1 << 23) - 1 }   // top bits: the low bits of an LCG repeat
         try writeSignal(audioDir.appendingPathComponent("noisy.wav"), channels: 2, seconds: 4) { _, t in
             let hiss = 0.02 * noise(), hum = Float(0.01 * sin(2 * .pi * 50 * t) + 0.005 * sin(2 * .pi * 100 * t))
             let tone: Float = (1.5..<3.0).contains(t) ? Float(0.3 * sin(2 * .pi * 440 * t)) : 0
@@ -364,7 +364,7 @@ enum SelfTest {
         let dnBefore = (noise: try segment(noisyURL, from: 0.3, to: 1.2).rms, tone: try segment(noisyURL, from: 1.7, to: 2.8).rms)
         let sem4 = DispatchSemaphore(value: 0)
         var denoised = false
-        DispatchQueue.main.async { session.denoise(noisyRef, reduction: 24, fromLoop: false) { ok in denoised = ok; sem4.signal() } }
+        DispatchQueue.main.async { session.cleanUp(noisyRef, .denoise(reduction: 24, fromLoop: false)) { ok in denoised = ok; sem4.signal() } }
         _ = sem4.wait(timeout: .now() + 30)
         if let c = onMain({ session.clip(noisyRef) }), denoised, c.originalFile == "noisy.wav" {
             let url = audioDir.appendingPathComponent(c.file)
@@ -375,12 +375,66 @@ enum SelfTest {
             check(abs(toneChange) < 1, String(format: "denoise keeps the wanted sound within %.2f dB of the clean original", toneChange))
             check(abs(try samples(url).count - samples(noisyURL).count) == 0, "denoised file is exactly as long, so the clip stays in place")
             check(!onMain { session.unusedAudio() }.contains { $0.lastPathComponent == "noisy.wav" }, "the original is kept (not offered for deletion)")
-            onMain { session.removeDenoise(noisyRef) }
+            onMain { session.removeCleanup(noisyRef) }
             check(onMain { session.clip(noisyRef)?.file } == "noisy.wav", "Remove Denoise puts the original back")
         } else {
             check(false, "denoise runs on a clip and points it at the cleaned copy")
         }
         onMain { session.project.tracks[0].clips.removeAll { $0.id == noisyRef.clip } }
+
+        // Voice Clean: real speech (the system voice) under hiss and hum, through DeepFilterNet.
+        if VoiceClean.tool == nil {
+            log("skip Voice Clean: DeepFilterNet isn't bundled in this build")
+        } else {
+            let aiff = FileManager.default.temporaryDirectory.appendingPathComponent("recorder-selftest-speech.aiff")
+            let say = Process()
+            say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+            say.arguments = ["-o", aiff.path, "Testing one two three. This is a voice with a noisy microphone. Can you hear me clearly now?"]
+            try say.run(); say.waitUntilExit()
+            let speechURL = audioDir.appendingPathComponent("speech.wav")
+            _ = try Importer.convert(aiff, to: speechURL)
+            let speech = try samples(speechURL)
+            let lead = 48000, seconds = Double(speech.count + 2 * lead) / Formats.rate
+            let talkURL = audioDir.appendingPathComponent("talk.wav")
+            try writeSignal(talkURL, channels: 1, seconds: seconds) { _, t in
+                let i = Int(t * Formats.rate) - lead
+                let voice: Float = speech.indices.contains(i) ? speech[i] * 0.5 : 0
+                // Mains hum has harmonics; a pure 50 Hz sine is left alone by the model as a tone.
+                let hum = 0.01 * sin(2 * .pi * 50 * t) + 0.005 * sin(2 * .pi * 100 * t) + 0.003 * sin(2 * .pi * 150 * t)
+                return voice + 0.01 * noise() + Float(hum)
+            }
+            let talkRef: ClipRef = onMain {
+                let c = Clip(file: "talk.wav", fileLength: seconds, start: 40, duration: seconds)
+                session.project.tracks[0].clips.append(c)
+                return ClipRef(track: session.project.tracks[0].id, clip: c.id)
+            }
+            let voiceSpan = (Double(lead) / Formats.rate, Double(lead + speech.count) / Formats.rate)
+            let cleanVoice = 0.5 * sqrt(speech.reduce(0.0) { $0 + Double($1 * $1) } / Double(max(1, speech.count)))
+            let sem5 = DispatchSemaphore(value: 0)
+            var cleaned = false
+            let started = Date()
+            DispatchQueue.main.async { session.cleanUp(talkRef, .voiceClean(strength: VoiceClean.maxStrength)) { ok in cleaned = ok; sem5.signal() } }
+            _ = sem5.wait(timeout: .now() + 60)
+            if let c = onMain({ session.clip(talkRef) }), cleaned, c.cleanup == .voiceClean, c.originalFile == "talk.wav" {
+                let url = audioDir.appendingPathComponent(c.file)
+                let quietBefore = try segment(talkURL, from: 0.5, to: 0.95).rms, quietAfter = try segment(url, from: 0.5, to: 0.95).rms
+                let voiceAfter = try segment(url, from: voiceSpan.0, to: voiceSpan.1).rms
+                let cut = 20 * log10(quietAfter / quietBefore), kept = 20 * log10(voiceAfter / cleanVoice)
+                check(cut < -20, String(format: "Voice Clean removes hiss + hum by %.1f dB in %.1f s", cut, Date().timeIntervalSince(started)))
+                check(abs(kept) < 2, String(format: "Voice Clean keeps the voice within %.2f dB", kept))
+                check(try samples(url).count == samples(talkURL).count, "Voice Clean output is exactly as long as the take")
+                // Aligned: the cleaned voice correlates best with the original at zero offset.
+                let a = try samples(talkURL), b = try samples(url), from = lead + 12000
+                func corr(_ k: Int) -> Double { stride(from: 0, to: 6000, by: 2).reduce(0.0) { $0 + Double(a[from + $1] * b[from + $1 + k]) } }
+                let lag = (-480...480).max { corr($0) < corr($1) } ?? 99
+                check(abs(lag) <= 2, "Voice Clean output lines up with the original (offset \(lag) samples)")
+                onMain { session.removeCleanup(talkRef) }
+                check(onMain { session.clip(talkRef)?.file } == "talk.wav", "Remove Voice Clean puts the original back")
+            } else {
+                check(false, "Voice Clean runs on a clip and points it at the cleaned copy (\(onMain { session.problem } ?? "no message"))")
+            }
+            onMain { session.project.tracks[0].clips.removeAll { $0.id == talkRef.clip } }
+        }
         onMain {
             if let t = songTrack { session.removeTrack(t.id) }
             session.project.tracks[1].clips.removeAll { $0.file.hasPrefix("beat 44k") }
@@ -453,9 +507,10 @@ enum SelfTest {
         try file.read(into: buf, frameCount: count)
         var l: Float = 0, r: Float = 0, sum = 0.0
         let d = buf.floatChannelData!
+        let right = buf.format.channelCount > 1 ? 1 : 0     // mono: both sides read the one channel
         for i in 0..<Int(buf.frameLength) {
-            l = max(l, abs(d[0][i])); r = max(r, abs(d[1][i]))
-            sum += Double(d[0][i] * d[0][i] + d[1][i] * d[1][i])
+            l = max(l, abs(d[0][i])); r = max(r, abs(d[right][i]))
+            sum += Double(d[0][i] * d[0][i] + d[right][i] * d[right][i])
         }
         return (l, r, sqrt(sum / Double(2 * buf.frameLength)))
     }

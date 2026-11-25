@@ -52,6 +52,7 @@ effects chain take far more hand-written code. JUCE is recommended.
 | `Exporter.swift` | Offline render of the whole mix to WAV/M4A; waveform peaks | Same Strip code run faster than real time; WAV via `WavAudioFormat`; M4A via Windows Media Foundation (`WindowsMediaAudioFormat`) or skip it |
 | `Importer.swift` | Converts WAV/AIFF/MP3/M4A/CAF/FLAC to 48 kHz WAV | `AudioFormatManager::registerBasicFormats()` + `juce::ResamplingAudioSource`/`LagrangeInterpolator` |
 | `Denoise.swift` | Noise-print spectral noise reduction (§5) | Port the algorithm exactly; it's plain maths |
+| `VoiceClean.swift`, `CleanupSheet.swift` | DeepFilterNet voice clean-up and the clean-up window (§5) | DeepFilterNet's Windows .exe as a child process |
 | `Recovery.swift` | Disk-space limits, the in-progress marker, WAV header repair (§6) | Same logic; disk space via `GetDiskFreeSpaceExW` / `juce::File::getBytesFreeOnVolume` |
 | `ContentView`, `Sidebar`, `TimelineView`, `Theme`, `DenoiseSheet` | UI | JUCE `Component`s. The screenshots and the colour values in `Theme.swift` give the look |
 | `SelfTest.swift` | End-to-end checks behind `--selftest` | Port the checks as a test runner; they're the acceptance criteria (§8) |
@@ -157,6 +158,32 @@ Offline, per recording. It writes a new file of identical length and keeps the o
 Self-test target: hiss plus a 50/100 Hz hum under a 440 Hz tone, reduction 24 dB. The noise-only
 part must drop by more than 15 dB, and the tone must stay within ±1 dB.
 
+### Voice Clean (DeepFilterNet)
+
+Neural clean-up with DeepFilterNet 3 (MIT/Apache-2.0). It needs no noise sample, removes any noise
+behind a voice, and also removes instruments, so it's for speech and singing.
+
+- **On Windows, use the same project's official Windows build:**
+  `deep-filter-0.5.6-x86_64-pc-windows-msvc.exe` from github.com/Rikorose/DeepFilterNet/releases/tag/v0.5.6.
+  Ship it next to Recorder.exe and run it as a child process (`CreateProcess`, or `juce::ChildProcess`).
+- **For real-time use or no child process:** link `libDF` (the project's Rust library, C API in
+  `libDF/src/capi.rs`: `df_create`, `df_process_frame`, `df_free`). That needs a Rust toolchain at
+  build time.
+- **Exactly what the Mac version does** (`VoiceClean.swift`):
+  1. Write the source as a 32-bit float WAV. The tool can't read 24-bit ("TooWide").
+  2. Run `deep-filter -D -a <strength> -o <tempdir> <input.wav>`. `-D` compensates the model's delay,
+     so the output lines up with the input sample for sample. `-a` is the attenuation limit in dB:
+     100 = maximum (the default); lower leaves some room sound.
+  3. The tool writes 16-bit output about 30 ms (1440 samples) shorter. Pad it with silence back to
+     the input's exact length and save it as 24-bit `"<name> voice clean.wav"`.
+  4. Then the same clip bookkeeping as Denoise: `originalFile`, plus `"cleanup": "voiceClean"` on the
+     clip.
+- **What the self-test measured:** with real speech (the system voice) under hiss and 50/100/150 Hz
+  hum, noise dropped 46 dB, the voice stayed within 0.2 dB, and the offset was 0 samples. 9 s of audio
+  takes about 0.6 s.
+- **Known limit:** a *pure* 50 Hz sine passes through untouched, because the model hears it as a tone.
+  Real mains hum has harmonics and is removed. For a pure hum, use the Gate's hum filter.
+
 ## 6. Safety and recovery
 
 - **Before recording:** refuse unless free space ≥ 2 minutes of audio for the armed channels
@@ -213,7 +240,8 @@ My Song/
       "id": "UUID", "file": "Track 1 ... .wav", "fileLength": 20.99,
       "start": 0.0, "offset": 0.0, "duration": 20.99,
       "fadeIn": 0, "fadeOut": 0,
-      "originalFile": "..."                                    // † set when file is a denoised copy
+      "originalFile": "...",                                   // † set when file is a cleaned copy
+      "cleanup": "denoise"                                     // † "denoise" | "voiceClean"
     }]
   }]
 }
@@ -240,7 +268,7 @@ Port these as automated tests. The Windows build is done when all of them pass:
   - an EQ band cut/boost, the compressor, the reverb tail
   - fades, moved and trimmed clips
   - the gate on a quiet signal, the hum notch, low cut, stereo clips
-- **Denoise:** the targets in §5. The output is the same length. The original is kept, and Remove
+- **Denoise / Voice Clean:** the targets in §5. The output is the same length. The original is kept, and Remove
   Denoise restores it.
 - **Recovery and limits:**
   - A take cut off mid-write is unreadable before repair and plays after; it is put back on its track.

@@ -9,13 +9,16 @@ them, and export a WAV or M4A. A smaller Studio One, built for one person with o
 - **Mix:** volume, pan, mute, solo, master. Per track: noise gate + hum filter + low cut, a 9-band EQ
   (20 Hz – 20 kHz), compressor, delay (tempo-synced) and reverb.
 - **Clean up:** Denoise learns a noise print (automatically, or from the loop region) and removes
-  steady hiss and hum. The original recording is always kept.
+  steady hiss and hum. Voice Clean uses DeepFilterNet (a neural model) to keep the voice and remove
+  any noise behind it. Both keep the original recording.
 - **Safe:** refuses to record without disk space, stops cleanly when the disk fills, and recovers a
   take cut off by a crash or power loss on the next launch.
 
 ## Build and run
 
-Needs macOS 15+ and Xcode's command-line tools (Swift 5.10+). No dependencies.
+Needs macOS 15+ on Apple silicon and Xcode's command-line tools (Swift 5.10+). The first build
+downloads DeepFilterNet's `deep-filter` tool (28 MB, checked by SHA-256) into `Vendor/` for Voice
+Clean. Offline, the app still builds without it. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ```sh
 ./build.sh              # builds build.noindex/Recorder.app

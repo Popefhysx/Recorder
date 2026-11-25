@@ -18,8 +18,8 @@ struct ContentView: View {
         }
         .ignoresSafeArea(.container, edges: .top)
         .background(Theme.background)
-        .sheet(isPresented: Binding(get: { session.denoiseTarget != nil }, set: { if !$0 { session.denoiseTarget = nil } })) {
-            if let ref = session.denoiseTarget { DenoiseSheet(ref: ref) }
+        .sheet(isPresented: Binding(get: { session.cleanupTarget != nil }, set: { if !$0 { session.cleanupTarget = nil } })) {
+            if let t = session.cleanupTarget { CleanupSheet(ref: t.ref, tool: t.tool) }
         }
         .foregroundStyle(Theme.text)
         .tint(Theme.purple)

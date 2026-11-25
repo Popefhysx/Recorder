@@ -52,19 +52,21 @@ components:
     does: Disk-space limits, in-progress marker, WAV header repair, restore takes after a crash
     status: live
   - id: voiceclean
-    name: Voice Clean (DeepFilterNet)
+    name: Voice Clean
     kind: pipeline
-    does: Neural voice/noise separation
-    status: dormant
-    note: Planned, not built. Needs the DeepFilterNet model and runtime downloaded first.
+    does: DeepFilterNet 3 keeps the voice and removes any noise, into a new file; original kept
+    status: live
+    note: Runs the bundled deep-filter CLI (Contents/MacOS) as a subprocess. Missing helper = feature off, not a crash.
 
-dependencies: []
+dependencies:
+  - {name: DeepFilterNet v0.5.6 deep-filter CLI, kind: model, tier: primary, used_by: [voiceclean]}
 
 flows:
   - {from: input, to: session, label: takes + peaks}
   - {from: session, to: playback, label: project changes}
   - {from: playback, to: export, label: same strip code}
   - {from: session, to: denoise, label: clip file}
+  - {from: session, to: voiceclean, label: clip file}
   - {from: recovery, to: session, label: recovered takes on launch}
 ```
 
