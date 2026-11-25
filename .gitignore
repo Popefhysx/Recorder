@@ -1,0 +1,5 @@
+.build/
+build.noindex/
+handoff/
+.DS_Store
+.swiftpm/
