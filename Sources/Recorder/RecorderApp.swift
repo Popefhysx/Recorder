@@ -34,6 +34,9 @@ struct RecorderApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1400, height: 820)
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Keyboard Shortcuts…") { Shortcuts.shared.showingEditor = true }.keyboardShortcut(",")
+            }
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") { session.undo() }.keyboardShortcut("z").disabled(!session.canUndo)
                 Button("Redo") { session.redo() }.keyboardShortcut("z", modifiers: [.command, .shift]).disabled(!session.canRedo)

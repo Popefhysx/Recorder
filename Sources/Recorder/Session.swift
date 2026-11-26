@@ -166,6 +166,21 @@ final class Session: ObservableObject {
         }
     }
 
+    var isListening: Bool { !monitoredTracks.isEmpty }
+
+    /// Soundcheck: hear the input live through a track's effects, without recording. Uses the
+    /// selected track, else an armed one, else the first. Off turns every track's monitoring off.
+    func toggleListen() {
+        if isListening {
+            for i in project.tracks.indices { project.tracks[i].monitor = false }
+            return
+        }
+        if project.tracks.isEmpty { addTrack() }
+        let id = selectedTrack ?? armedTracks.first?.id ?? project.tracks[0].id
+        guard let i = index(of: id) else { return }
+        project.tracks[i].monitor = true
+    }
+
     // MARK: tracks and clips
 
     func addTrack() {
@@ -333,7 +348,17 @@ final class Session: ObservableObject {
 
     func togglePlay() { isPlaying || isRecording ? stop() : startPlayback(from: clock.position) }
 
-    func returnToStart() { setPosition(project.loopEnabled ? project.loopStart : 0) }
+    /// While recording, stops the take first (it's kept), so "back to the start" always works.
+    func returnToStart() {
+        let start = project.loopEnabled ? project.loopStart : 0
+        if isRecording { stop(); clock.position = start; return }
+        setPosition(start)
+    }
+
+    func goToEnd() {
+        if isRecording { return }
+        setPosition(project.duration)
+    }
 
     func toggleLoop() {
         project.loopEnabled.toggle()

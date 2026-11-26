@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var session: Session
     @FocusState private var keysFocused: Bool
+    @ObservedObject private var shortcuts = Shortcuts.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,19 +30,10 @@ struct ContentView: View {
         .focusEffectDisabled()
         .focused($keysFocused)
         .onAppear { keysFocused = true }
-        .onKeyPress(.space) { session.togglePlay(); return .handled }
-        .onKeyPress(.return) { session.returnToStart(); return .handled }
-        .onKeyPress(.delete) { session.deleteSelectedClip(); return .handled }
-        .onKeyPress(.deleteForward) { session.deleteSelectedClip(); return .handled }
-        .onKeyPress(characters: CharacterSet(charactersIn: "rlsRLS")) { press in
-            switch press.characters.lowercased() {
-            case "r": session.toggleRecord()
-            case "l": session.toggleLoop()
-            case "s": session.splitAtPlayhead()
-            default: return .ignored
-            }
-            return .handled
-        }
+        // Keys are handled by Shortcuts' app-wide monitor; focusing the root here only keeps the
+        // track-name field from grabbing the keyboard when the window opens.
+        .onAppear { Shortcuts.shared.install(session) }
+        .sheet(isPresented: $shortcuts.showingEditor) { ShortcutsEditor() }
     }
 }
 
@@ -64,6 +56,7 @@ struct TopBar: View {
                 Spacer(minLength: 12)
                 SaveControls()
                 InputPicker()
+                ListenButton()
                 OutputPicker()
                 Button { showSettings.toggle() } label: {
                     Image(systemName: "gearshape").font(.system(size: 17))
@@ -152,7 +145,10 @@ struct SaveControls: View {
                 Button("Export Mix as WAV…") { session.runExportPanel(.wav) }
                 Button("Export Mix as M4A…") { session.runExportPanel(.m4a) }
                 Divider()
+                HStack {
                 Button("Delete Unused Recordings…") { session.runCleanUp() }
+                Button("Keyboard Shortcuts…") { Shortcuts.shared.showingEditor = true }
+            }
             } label: {
                 Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
                     .frame(width: 34, height: 40).contentShape(Rectangle())
@@ -197,6 +193,27 @@ struct InputPicker: View {
         if let uid = session.preferredInputUID, !session.devices.contains(where: { $0.id == uid }) { return "Input missing — using default" }
         if let d = session.activeDevice { return d.name }
         return "Built-in / Default Input"
+    }
+}
+
+/// Soundcheck: hear yourself through the track's effects while checking the input level.
+struct ListenButton: View {
+    @EnvironmentObject private var session: Session
+    var body: some View {
+        let on = session.isListening
+        Button { session.toggleListen() } label: {
+            HStack(spacing: 5) {
+                Image(systemName: on ? "ear.fill" : "ear").font(.system(size: 14))
+                Text("Listen").font(.system(size: 13, weight: .medium))
+            }
+            .foregroundStyle(on ? .white : Theme.text)
+            .padding(.horizontal, 12).frame(height: 40)
+            .background(Capsule().fill(on ? Theme.purple : .white))
+            .overlay(Capsule().strokeBorder(on ? .clear : Theme.border))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain).fixedSize()
+        .help(Shortcuts.shared.hint(on ? "Stop listening to the input" : "Listen to your input live (soundcheck), through the selected track's effects. Use headphones", .listen))
     }
 }
 
@@ -312,23 +329,23 @@ struct TransportBar: View {
                     }
                 }
             }
-            .help("Record armed tracks (R)")
+            .help(Shortcuts.shared.hint("Record armed tracks", .record))
             .padding(.trailing, 6)
 
             HStack(spacing: 8) {
                 RoundButton(action: { session.returnToStart() }) {
                     Image(systemName: "backward.fill").font(.system(size: 16))
                 }
-                .help("Back to the start (Return)")
+                .help(Shortcuts.shared.hint("Back to the start", .returnToStart))
                 RoundButton(size: 54, fill: Theme.purple, action: { session.togglePlay() }) {
                     Image(systemName: session.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 20)).foregroundStyle(.white).offset(x: session.isPlaying ? 0 : 2)
                 }
-                .help("Play / Pause (Space)")
+                .help(Shortcuts.shared.hint("Play / Pause", .playPause))
                 RoundButton(action: { session.setPosition(session.clock.position + 5) }) {
                     Image(systemName: "forward.fill").font(.system(size: 16))
                 }
-                .help("Forward 5 seconds")
+                .help(Shortcuts.shared.hint("Forward 5 seconds", .forward))
                 RoundButton(action: { session.stop() }) {
                     RoundedRectangle(cornerRadius: 2).fill(Theme.text).frame(width: 14, height: 14)
                 }
@@ -355,7 +372,7 @@ struct TransportBar: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
             }
             .buttonStyle(.plain)
-            .help("Loop (L). Set the loop range in Settings or with ⌘[ and ⌘].")
+            .help(Shortcuts.shared.hint("Loop", .loop) + ". Set the loop range in Settings or with ⌘[ and ⌘].")
             .padding(.leading, 12)
         }
         .padding(.horizontal, 22)

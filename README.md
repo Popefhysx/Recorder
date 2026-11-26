@@ -11,6 +11,9 @@ them, and export a WAV or M4A. A smaller Studio One, built for one person with o
 - **Clean up:** Denoise learns a noise print (automatically, or from the loop region) and removes
   steady hiss and hum. Voice Clean uses DeepFilterNet (a neural model) to keep the voice and remove
   any noise behind it. Both keep the original recording.
+- **Keys:** Space play/pause, Return back to the start (also mid-take), ⇧Return to the end, ← / → 5 s,
+  R record, I listen (soundcheck), L loop, K metronome, G snap, S split, Delete. All changeable in
+  Keyboard Shortcuts (⌘,).
 - **Safe:** refuses to record without disk space, stops cleanly when the disk fills, and recovers a
   take cut off by a crash or power loss on the next launch.
 

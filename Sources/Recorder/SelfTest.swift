@@ -304,10 +304,43 @@ enum SelfTest {
         DispatchQueue.main.async { session.record { _ in sem2.signal() } }
         _ = sem2.wait(timeout: .now() + 10)
         Thread.sleep(forTimeInterval: 3.4)
-        onMain { session.stop(); session.project.countIn = false; session.project.tracks[0].armed = false }
+        // Stopped with the "back to the start" shortcut: the take must be kept and the playhead go home.
+        let (stillRecording, home, expectedHome) = onMain { () -> (Bool, Double, Double) in
+            session.perform(.returnToStart)
+            return (session.isRecording, session.clock.position, session.project.loopEnabled ? session.project.loopStart : 0)
+        }
+        onMain { session.project.countIn = false; session.project.tracks[0].armed = false }
+        check(!stillRecording && abs(home - expectedHome) < 1e-9, String(format: "back-to-start during a take stops it and moves to %.2f s", home))
         let countInTake = onMain { session.project.tracks[0].clips.max { $0.start < $1.start } }
         check(countInTake.map { abs($0.start - 10) < 0.1 && $0.duration > 0.8 && $0.duration < 2.2 } == true,
-              String(format: "count-in: take starts at the playhead after one bar (start %.2f s, %.2f s long)", countInTake?.start ?? -1, countInTake?.duration ?? -1))
+              String(format: "count-in: take starts at the playhead after one bar, and is kept (start %.2f s, %.2f s long)", countInTake?.start ?? -1, countInTake?.duration ?? -1))
+
+        // Keyboard shortcuts: matching, rebinding (a taken key moves), saving, defaults; Listen.
+        let suite = UserDefaults(suiteName: "recorder-selftest-\(ProcessInfo.processInfo.processIdentifier)")!
+        func key(_ code: UInt16, _ flags: NSEvent.ModifierFlags = [], _ ch: String = " ") -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
+                             characters: ch, charactersIgnoringModifiers: ch, isARepeat: false, keyCode: code)!
+        }
+        let keys = Shortcuts(defaults: suite)
+        check(keys.action(for: key(49)) == .playPause && keys.action(for: key(36)) == .returnToStart
+              && keys.action(for: key(36, .shift)) == .goToEnd && keys.action(for: key(123, .function)) == .back,
+              "default keys: Space plays, Return goes to the start, ⇧Return to the end, ← goes back")
+        let displacedAction = keys.set(KeyCombo(event: key(15, [], "r")), for: .loop)
+        check(displacedAction == .record && keys.action(for: key(15)) == .loop && keys.key(for: .record) == nil,
+              "rebinding R to Loop takes it from Record")
+        let reloaded = Shortcuts(defaults: suite)
+        check(reloaded.key(for: .loop)?.keyCode == 15 && reloaded.key(for: .record) == nil, "changed shortcuts are remembered")
+        reloaded.resetAll()
+        check(Shortcuts(defaults: suite).key(for: .record) == ShortcutAction.record.defaultKey, "Restore Defaults brings the keys back")
+        suite.removePersistentDomain(forName: "recorder-selftest-\(ProcessInfo.processInfo.processIdentifier)")
+        let end = onMain { () -> (Double, Double) in session.perform(.goToEnd); return (session.clock.position, session.project.duration) }
+        check(abs(end.0 - end.1) < 1e-9, String(format: "go-to-end moves to the last clip's end (%.2f s)", end.0))
+        onMain { session.clock.position = 0 }
+        let listen = onMain { () -> (Bool, Bool) in
+            session.toggleListen(); let on = session.isListening
+            session.toggleListen(); return (on, session.isListening)
+        }
+        check(listen.0 && !listen.1, "Listen turns live monitoring on, and off again")
 
         // 3e. Output device switching.
         if let usb = AudioDevices.outputDevices().first(where: \.isUSBOutput) {
