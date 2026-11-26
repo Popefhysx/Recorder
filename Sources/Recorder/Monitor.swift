@@ -31,29 +31,38 @@ final class MonitorRing: @unchecked Sendable {
 
     /// A stereo source node that plays live input while `mode` says so: `MonitorMode.off`,
     /// `.stereo` (inputs 1+2), or an input index (mono, sent to both sides). It stays about `lag`
-    /// frames behind the newest input and skips ahead or pads with silence if the input and
-    /// output devices' clocks drift. The node is created once per track and never rewired, so
-    /// turning monitoring on and off doesn't change the running audio graph.
+    /// output frames behind the newest input and skips ahead or pads with silence if the input and
+    /// output devices' clocks drift. Inputs not at 48 kHz (a Bluetooth headset mic runs at 16 or
+    /// 24 kHz) are resampled by linear interpolation; that used to be silence. The node is created
+    /// once per track and never rewired, so turning monitoring on and off doesn't change the
+    /// running audio graph.
     func makeSource(mode: MonitorMode, lag: Int = 192) -> AVAudioSourceNode {
-        var read = -1
+        var read: Double = -1                       // position in input frames
         return AVAudioSourceNode(format: Formats.stereo) { [self] _, _, count, abl in
             let out = UnsafeMutableAudioBufferListPointer(abl)
             let n = Int(count)
             let m = mode.value.load(ordering: .relaxed)
-            let usable = m != MonitorMode.off && sampleRate == Formats.rate
+            let rate = sampleRate
+            let usable = m != MonitorMode.off && rate > 0
+            let step = rate / Formats.rate          // input frames per output frame
             let newest = written.load(ordering: .acquiring)
-            if !usable || read < 0 || newest - read > Self.capacity / 4 || newest - read < 0 {
-                read = usable ? newest - lag - n : -1
+            let ahead = Double(newest) - read
+            if !usable || read < 0 || ahead > Double(Self.capacity / 4) || ahead < 1 {
+                read = usable ? max(0, Double(newest) - (Double(lag + n) * step).rounded(.up) - 1) : -1
             }
             for k in 0..<min(2, out.count) {
                 let dst = out[k].mData!.assumingMemoryBound(to: Float.self)
-                let ch = m == MonitorMode.stereo ? k : max(0, m)
+                let ch = min(m == MonitorMode.stereo ? k : max(0, m), Self.channels - 1)
                 for i in 0..<n {
-                    let pos = read + i
-                    dst[i] = usable && pos < newest ? data[(pos & (Self.capacity - 1)) * Self.channels + min(ch, Self.channels - 1)] : 0
+                    let p = read + Double(i) * step
+                    let i0 = Int(p)
+                    guard usable, i0 + 1 < newest else { dst[i] = 0; continue }
+                    let a = data[(i0 & (Self.capacity - 1)) * Self.channels + ch]
+                    let b = data[((i0 + 1) & (Self.capacity - 1)) * Self.channels + ch]
+                    dst[i] = a + (b - a) * Float(p - Double(i0))
                 }
             }
-            if usable { read = min(read + n, newest) }
+            if usable { read = min(read + Double(n) * step, Double(newest)) }
             return noErr
         }
     }

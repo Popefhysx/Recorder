@@ -176,9 +176,18 @@ final class Session: ObservableObject {
             return
         }
         if project.tracks.isEmpty { addTrack() }
-        let id = selectedTrack ?? armedTracks.first?.id ?? project.tracks[0].id
-        guard let i = index(of: id) else { return }
+        // A muted (or not-soloed) track's monitoring is silent, so pick one that can be heard.
+        let order = [selectedTrack].compactMap { $0 } + armedTracks.map(\.id) + project.tracks.map(\.id)
+        guard let id = order.first(where: { id in project.tracks.first { $0.id == id }.map(project.isAudible) ?? false }),
+              let i = index(of: id) else {
+            problem = "Every track is muted (or another is soloed), so there's nothing to hear. Unmute a track with M, then press Listen again."
+            return
+        }
         project.tracks[i].monitor = true
+        selectedTrack = id
+        if let d = recorder.device ?? activeDevice, AudioDevices.transport(d.objectID) == kAudioDeviceTransportTypeBluetooth {
+            problem = "Listening to \(d.name)'s mic. Bluetooth mics are delayed and low quality; for recording, pick your audio interface in the mic menu."
+        }
     }
 
     // MARK: tracks and clips

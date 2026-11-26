@@ -341,6 +341,49 @@ enum SelfTest {
             session.toggleListen(); return (on, session.isListening)
         }
         check(listen.0 && !listen.1, "Listen turns live monitoring on, and off again")
+        let mutedListen = onMain { () -> (Bool, Bool) in
+            let before = session.project.tracks.map(\.mute)
+            for i in session.project.tracks.indices { session.project.tracks[i].mute = true }
+            session.toggleListen()
+            let r = (session.isListening, session.problem?.contains("muted") == true)
+            for (i, m) in before.enumerated() { session.project.tracks[i].mute = m }
+            session.problem = nil
+            return r
+        }
+        check(!mutedListen.0 && mutedListen.1, "Listen says so when every track is muted, instead of staying silent")
+        let skipsMuted = onMain { () -> Bool in
+            session.project.tracks[0].mute = true
+            session.selectedTrack = session.project.tracks[0].id
+            session.toggleListen()
+            let ok = session.project.tracks[0].monitor == false && session.isListening
+            session.toggleListen(); session.project.tracks[0].mute = false
+            return ok
+        }
+        check(skipsMuted, "Listen skips a muted selected track and uses one you can hear")
+
+        // Monitoring a 24 kHz input (a Bluetooth headset mic) must play, at the right pitch.
+        do {
+            let ring = MonitorRing(); ring.sampleRate = 24000
+            let inFormat = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
+            let src = AVAudioPCMBuffer(pcmFormat: inFormat, frameCapacity: 4800)!
+            src.frameLength = 4800
+            for i in 0..<4800 { src.floatChannelData![0][i] = 0.5 * sin(2 * .pi * 1000 * Float(i) / 24000) }
+            ring.write(src.audioBufferList, frames: 4800)
+            let mode = MonitorMode(); mode.value.store(0, ordering: .relaxed)
+            let engine = AVAudioEngine()
+            try engine.enableManualRenderingMode(.offline, format: Formats.stereo, maximumFrameCount: 512)
+            let node = ring.makeSource(mode: mode)
+            engine.attach(node); engine.connect(node, to: engine.mainMixerNode, format: Formats.stereo)
+            try engine.start()
+            let out = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 512)!
+            _ = try engine.renderOffline(480, to: out)
+            let x = Array(UnsafeBufferPointer(start: out.floatChannelData![0], count: Int(out.frameLength)))
+            let rms = sqrt(x.reduce(0) { $0 + $1 * $1 } / Float(max(1, x.count)))
+            let crossings = zip(x, x.dropFirst()).filter { $0 < 0 && $1 >= 0 }.count     // 10 ms of 1 kHz ≈ 10
+            engine.stop()
+            check(abs(rms - 0.3536) < 0.03 && (9...11).contains(crossings),
+                  String(format: "monitoring a 24 kHz input plays it at 48 kHz (level %.3f, %d cycles in 10 ms)", rms, crossings))
+        }
 
         // 3e. Output device switching.
         if let usb = AudioDevices.outputDevices().first(where: \.isUSBOutput) {
