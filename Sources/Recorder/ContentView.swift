@@ -49,8 +49,6 @@ struct TopBar: View {
             Color.white.gesture(WindowDragGesture())
             HStack(spacing: 12) {
                 Color.clear.frame(width: fullScreen ? 0 : 60, height: 1)   // room for the window buttons
-                AppMark()
-                Text("Recorder").font(.system(size: 21, weight: .bold)).fixedSize()
                 Spacer(minLength: 12)
                 ModeTabs().fixedSize()
                 Spacer(minLength: 12)
@@ -73,15 +71,6 @@ struct TopBar: View {
         // Full screen hides the window buttons, so drop the space kept for them.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in fullScreen = true }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in fullScreen = false }
-    }
-}
-
-struct AppMark: View {
-    var body: some View {
-        Image(nsImage: NSApp.applicationIconImage)
-            .resizable().interpolation(.high)
-            .frame(width: 40, height: 40)
-            .padding(-4) // the icon art has a margin around the square
     }
 }
 
