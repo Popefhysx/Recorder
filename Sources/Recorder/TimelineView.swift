@@ -329,15 +329,18 @@ struct ClipView: View {
         .contextMenu {
             Button("Split at Playhead") { session.selection = ref; session.splitAtPlayhead() }
             Button("Delete Clip") { session.selection = ref; session.deleteSelectedClip() }
-            Button("Remove Fades") { session.updateClip(ref) { $0.fadeIn = 0; $0.fadeOut = 0 } }
+            if clip.fadeIn > 0 || clip.fadeOut > 0 {
+                Button("Remove Fades") { session.updateClip(ref) { $0.fadeIn = 0; $0.fadeOut = 0 } }
+            }
             Divider()
-            Button("Remove Silence…") { session.selection = ref; session.silenceTarget = ref }
+            ForEach([ClipProcessing.QuickFix.cleanVoice, .removeHiss, .louder], id: \.self) { fix in
+                Button(fix.title) { session.selection = ref; session.quickFix(ref, fix) }
+            }
+            Button("Remove Silence") { session.selection = ref; session.removeSilenceAutomatically(ref) }
             Divider()
-            Button("Clean Up & Enhance…") { session.selection = ref; session.processTarget = .init(ref: ref) }
-            Button("Denoise…") { session.selection = ref; session.processTarget = .init(ref: ref, preset: .denoise) }
-            Button("Voice Clean…") { session.selection = ref; session.processTarget = .init(ref: ref, preset: .voiceClean) }
-            Button("Enhance Voice…") { session.selection = ref; session.processTarget = .init(ref: ref, preset: .enhance) }
-            if clip.originalFile != nil { Button("Remove Clean-Up & Enhance") { session.removeProcessing(ref) } }
+            Button("Custom Clean Up…") { session.selection = ref; session.processTarget = ref }
+            Button("Remove Silence Options…") { session.selection = ref; session.silenceTarget = ref }
+            if clip.originalFile != nil { Button("Undo All Clean-Up") { session.removeProcessing(ref) } }
         }
         .offset(x: clip.start * pps + laneInset, y: 6)
         .onAppear { if let audio = session.audioFolder { waveforms.load(clip.file, folder: audio) } }

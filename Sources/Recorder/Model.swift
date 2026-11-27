@@ -160,6 +160,32 @@ struct ClipProcessing: Codable, Equatable {
     var volume: Volume = .unchanged
     var gain: Float = 6                     // dB, when volume == .gain
 
+    /// One-click fixes from the clip menu. Each adds to whatever the clip already has.
+    enum QuickFix: CaseIterable {
+        case cleanVoice, removeHiss, louder
+        var title: String {
+            switch self {
+            case .cleanVoice: "Clean Up Voice"
+            case .removeHiss: "Remove Hiss & Hum"
+            case .louder: "Make Louder"
+            }
+        }
+        var working: String {
+            switch self {
+            case .cleanVoice: "Cleaning up the voice…"
+            case .removeHiss: "Removing hiss and hum…"
+            case .louder: "Making it louder…"
+            }
+        }
+        func apply(to s: inout ClipProcessing) {
+            switch self {
+            case .cleanVoice: s.noise = .voiceClean; s.enhance = true
+            case .removeHiss: s.noise = .denoise
+            case .louder: s.volume = .normalize
+            }
+        }
+    }
+
     var isEmpty: Bool { noise == nil && !enhance && (volume == .unchanged || (volume == .gain && gain == 0)) }
 
     /// e.g. "Voice Clean · Enhanced · +6 dB"

@@ -20,7 +20,7 @@ struct ContentView: View {
         .ignoresSafeArea(.container, edges: .top)
         .background(Theme.background)
         .sheet(isPresented: Binding(get: { session.processTarget != nil }, set: { if !$0 { session.processTarget = nil } })) {
-            if let t = session.processTarget { ProcessSheet(ref: t.ref, current: session.clip(t.ref)?.processing, preset: t.preset) }
+            if let ref = session.processTarget { ProcessSheet(ref: ref, current: session.clip(ref)?.processing) }
         }
         .sheet(isPresented: Binding(get: { session.silenceTarget != nil }, set: { if !$0 { session.silenceTarget = nil } })) {
             if let ref = session.silenceTarget { SilenceSheet(ref: ref) }

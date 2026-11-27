@@ -628,6 +628,35 @@ enum SelfTest {
               String(format: "closing the gaps pulls the pieces and the later clip earlier (%.2f, %.2f; later clip %.2f)",
                      tight.pieces.first?.start ?? -1, tight.pieces.last?.start ?? -1, tight.later))
         onMain { session.project.tracks[0].clips.removeAll { $0.file == "phrases.wav" || $0.id == laterRef.clip } }
+        // One-click fixes add to what the clip has; one-click Remove Silence uses automatic settings.
+        let quickRef: ClipRef = onMain {
+            let c = Clip(file: "noisy.wav", fileLength: 4, start: 80, duration: 4)
+            session.project.tracks[0].clips.append(c)
+            return ClipRef(track: session.project.tracks[0].id, clip: c.id)
+        }
+        func waitForProcessing() {
+            Thread.sleep(forTimeInterval: 0.1)
+            for _ in 0..<600 where onMain({ session.processProgress != nil }) { Thread.sleep(forTimeInterval: 0.1) }
+        }
+        onMain { session.quickFix(quickRef, .removeHiss) }
+        waitForProcessing()
+        onMain { session.quickFix(quickRef, .louder) }
+        waitForProcessing()
+        let quick = onMain { (session.clip(quickRef)?.processing, session.problem) }
+        check(quick.0?.noise == .denoise && quick.0?.volume == .normalize && quick.1 == nil,
+              "one-click Remove Hiss & Hum then Make Louder stack on the clip (\(quick.0?.summary ?? "none"))")
+        onMain { session.project.tracks[0].clips.removeAll { $0.id == quickRef.clip } }
+        let autoRef: ClipRef = onMain {
+            let c = Clip(file: "phrases.wav", fileLength: 6, start: 90, duration: 6)
+            session.project.tracks[0].clips.append(c)
+            return ClipRef(track: session.project.tracks[0].id, clip: c.id)
+        }
+        let autoPieces = onMain { () -> Int in
+            session.removeSilenceAutomatically(autoRef)
+            return session.project.tracks[0].clips.filter { $0.file == "phrases.wav" }.count
+        }
+        check(autoPieces == 2, "one-click Remove Silence finds the silences on its own (\(autoPieces) pieces)")
+        onMain { session.project.tracks[0].clips.removeAll { $0.file == "phrases.wav" }; session.problem = nil }
         let legacy = #"{"id":"6F1A0E7C-8B7E-4C0B-9D0C-6F7E8D9A0B1C","file":"a voice clean.wav","fileLength":1,"start":0,"offset":0,"duration":1,"fadeIn":0,"fadeOut":0,"originalFile":"a.wav","cleanup":"voiceClean"}"#
         let old = try JSONDecoder().decode(Clip.self, from: Data(legacy.utf8))
         check(old.processing?.noise == .voiceClean, "clips cleaned by the earlier version still show as Voice Clean")

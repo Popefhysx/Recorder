@@ -9,16 +9,9 @@ struct ProcessSheet: View {
     @State private var s: ClipProcessing
     @State private var fromLoop = false
 
-    init(ref: ClipRef, current: ClipProcessing?, preset: Session.ProcessRequest.Preset?) {
+    init(ref: ClipRef, current: ClipProcessing?) {
         self.ref = ref
-        var start = current ?? ClipProcessing()
-        switch preset {
-        case .denoise: start.noise = .denoise
-        case .voiceClean: start.noise = .voiceClean
-        case .enhance: start.enhance = true
-        case nil: break
-        }
-        _s = State(initialValue: start)
+        _s = State(initialValue: current ?? ClipProcessing())
     }
 
     var body: some View {
@@ -27,10 +20,10 @@ struct ProcessSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles").foregroundStyle(Theme.purple)
-                Text("Clean Up & Enhance").font(.system(size: 16, weight: .semibold))
+                Text("Custom Clean Up").font(.system(size: 16, weight: .semibold))
             }
 
-            section("1  Noise") {
+            section("Noise") {
                 Picker("", selection: $s.noise) {
                     Text("None").tag(CleanupTool?.none)
                     Text("Denoise").tag(CleanupTool?.some(.denoise))
@@ -44,12 +37,12 @@ struct ProcessSheet: View {
                 }
             }
 
-            section("2  Voice") {
+            section("Voice") {
                 Toggle(isOn: $s.enhance) { Text("Enhance voice").font(.system(size: 12, weight: .medium)) }
                 note("Removes rumble and muddiness, adds presence and air, evens out the level, and brings it up to a strong, consistent loudness.")
             }
 
-            section("3  Volume") {
+            section("Volume") {
                 Picker("", selection: $s.volume) {
                     Text("Unchanged").tag(ClipProcessing.Volume.unchanged)
                     Text("Normalize").tag(ClipProcessing.Volume.normalize)

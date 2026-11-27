@@ -61,17 +61,18 @@ struct RecorderApp: App {
                 Button("Split at Playhead") { session.splitAtPlayhead() }.keyboardShortcut("t")
                 Button("Delete Clip") { session.deleteSelectedClip() }.keyboardShortcut(.delete)
                 Divider()
-                Button("Remove Silence…") { session.silenceTarget = session.selection }
-                    .keyboardShortcut("s", modifiers: [.command, .option])
-                    .disabled(session.selection == nil)
-                Button("Clean Up & Enhance Clip…") { session.selection.map { session.processTarget = .init(ref: $0) } }
-                    .keyboardShortcut("e", modifiers: [.command, .option])
-                    .disabled(session.selection == nil)
-                Button("Denoise Clip…") { session.selection.map { session.processTarget = .init(ref: $0, preset: .denoise) } }
-                    .keyboardShortcut("n", modifiers: [.command, .option])
-                    .disabled(session.selection == nil)
-                Button("Voice Clean Clip…") { session.selection.map { session.processTarget = .init(ref: $0, preset: .voiceClean) } }
-                    .keyboardShortcut("v", modifiers: [.command, .option])
+                Button("Clean Up Voice") { session.selection.map { session.quickFix($0, .cleanVoice) } }
+                    .keyboardShortcut("v", modifiers: [.command, .option]).disabled(session.selection == nil)
+                Button("Remove Hiss & Hum") { session.selection.map { session.quickFix($0, .removeHiss) } }
+                    .keyboardShortcut("n", modifiers: [.command, .option]).disabled(session.selection == nil)
+                Button("Make Louder") { session.selection.map { session.quickFix($0, .louder) } }
+                    .keyboardShortcut("l", modifiers: [.command, .option]).disabled(session.selection == nil)
+                Button("Remove Silence") { session.selection.map { session.removeSilenceAutomatically($0) } }
+                    .keyboardShortcut("s", modifiers: [.command, .option]).disabled(session.selection == nil)
+                Divider()
+                Button("Custom Clean Up…") { session.processTarget = session.selection }
+                    .keyboardShortcut("e", modifiers: [.command, .option]).disabled(session.selection == nil)
+                Button("Remove Silence Options…") { session.silenceTarget = session.selection }
                     .disabled(session.selection == nil)
             }
             CommandMenu("Transport") {

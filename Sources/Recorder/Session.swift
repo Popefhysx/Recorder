@@ -229,13 +229,8 @@ final class Session: ObservableObject {
 
     // MARK: clean-up and enhancement
 
-    /// What the Clean Up & Enhance sheet is open for, and which part to switch on when it opens.
-    struct ProcessRequest: Equatable {
-        enum Preset { case denoise, voiceClean, enhance }
-        var ref: ClipRef
-        var preset: Preset?
-    }
-    @Published var processTarget: ProcessRequest?
+    /// The clip the Clean Up & Enhance sheet (custom settings) is open for.
+    @Published var processTarget: ClipRef?
     /// The clip the Remove Silence sheet is open for.
     @Published var silenceTarget: ClipRef?
     @Published var processProgress: Double?
@@ -326,6 +321,18 @@ final class Session: ObservableObject {
         }
         let start = s.noise == nil ? 0.0 : 0.5
         try Enhance.process(source: current, dest: dest, enhance: s.enhance, volume: volume) { progress(start + $0 * (1 - start)) }
+    }
+
+    /// One click from the clip menu: adds the fix to the clip's current processing and runs it.
+    func quickFix(_ ref: ClipRef, _ fix: ClipProcessing.QuickFix) {
+        guard let c = clip(ref) else { return }
+        guard processProgress == nil else { problem = "Still working on the last clean-up. Try again in a moment."; return }
+        var s = c.processing ?? ClipProcessing()
+        fix.apply(to: &s)
+        guard s != c.processing else { problem = "\(fix.title) is already on this clip."; return }
+        if s.noise == .voiceClean, VoiceClean.tool == nil { problem = VoiceClean.Failure.notInstalled.localizedDescription; return }
+        problem = fix.working
+        process(ref, s) { [weak self] ok in if ok { self?.problem = nil } }
     }
 
     /// Puts the original recording back on the clip (and the other clips sharing its file).

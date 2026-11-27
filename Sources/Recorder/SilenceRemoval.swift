@@ -78,6 +78,16 @@ extension Session {
         return s.wholeTrack ? track.clips : track.clips.filter { $0.id == ref.clip }
     }
 
+    /// One click: automatic threshold, default pause length and margin, gaps left in place.
+    func removeSilenceAutomatically(_ ref: ClipRef) {
+        guard let c = clip(ref), let peaks = waveforms.peaks[c.file] else { problem = "Still reading this clip's waveform. Try again in a moment."; return }
+        var s = SilenceSettings()
+        s.threshold = SilenceRemoval.autoThreshold(c, peaks: peaks)
+        guard let preview = silencePreview(ref, s), preview.cuts > 0 else { problem = "No silence long enough to cut in this clip."; return }
+        removeSilence(ref, s)
+        problem = String(format: "Cut %d silent part%@ (%.1f s). ⌘Z to undo; Track › Remove Silence… has options.", preview.cuts, preview.cuts == 1 ? "" : "s", preview.seconds)
+    }
+
     func removeSilence(_ ref: ClipRef, _ s: SilenceSettings) {
         guard !isRecording, let t = index(of: ref.track) else { return }
         let targets = Set(silenceTargets(ref, s).map(\.id))
