@@ -496,7 +496,7 @@ enum SelfTest {
             let sem5 = DispatchSemaphore(value: 0)
             var cleaned = false
             let started = Date()
-            DispatchQueue.main.async { session.process(talkRef, ClipProcessing(noise: .voiceClean)) { ok in cleaned = ok; sem5.signal() } }
+            DispatchQueue.main.async { session.process(talkRef, ClipProcessing(noise: .voiceClean, voiceStrength: VoiceClean.maxStrength)) { ok in cleaned = ok; sem5.signal() } }
             _ = sem5.wait(timeout: .now() + 60)
             if let c = onMain({ session.clip(talkRef) }), cleaned, c.processing?.noise == .voiceClean, c.originalFile == "talk.wav" {
                 let url = audioDir.appendingPathComponent(c.file)
@@ -511,6 +511,20 @@ enum SelfTest {
                 func corr(_ k: Int) -> Double { stride(from: 0, to: 6000, by: 2).reduce(0.0) { $0 + Double(a[from + $1] * b[from + $1 + k]) } }
                 let lag = (-480...480).max { corr($0) < corr($1) } ?? 99
                 check(abs(lag) <= 2, "Voice Clean output lines up with the original (offset \(lag) samples)")
+                // The default strength turns noise down a lot but never to dead silence.
+                let semDefault = DispatchSemaphore(value: 0)
+                DispatchQueue.main.async { session.process(talkRef, ClipProcessing(noise: .voiceClean)) { _ in semDefault.signal() } }
+                _ = semDefault.wait(timeout: .now() + 60)
+                if let d = onMain({ session.clip(talkRef) }), d.file != "talk.wav" {
+                    let soft = try samples(audioDir.appendingPathComponent(d.file))
+                    let gapRMS = try segment(audioDir.appendingPathComponent(d.file), from: 0.5, to: 0.95).rms
+                    let softCut = 20 * log10(gapRMS / quietBefore)
+                    let deadRuns = stride(from: 0, to: soft.count - 4800, by: 2400).filter { k in soft[k..<(k + 4800)].allSatisfy { $0 == 0 } }.count
+                    check(softCut < -15 && softCut > -40 && deadRuns == 0,
+                          String(format: "Voice Clean's default strength cuts noise by %.1f dB without dead-silent holes (%d)", -softCut, deadRuns))
+                } else {
+                    check(false, "Voice Clean runs at its default strength")
+                }
                 onMain { session.removeProcessing(talkRef) }
                 check(onMain { session.clip(talkRef)?.file } == "talk.wav", "Remove Voice Clean puts the original back")
             } else {

@@ -153,7 +153,9 @@ struct ClipProcessing: Codable, Equatable {
     enum Volume: String, Codable, CaseIterable { case unchanged, normalize, gain }
     var noise: CleanupTool?
     var denoiseReduction: Float = 15
-    var voiceStrength: Float = 100
+    // 30 dB, not unlimited: at Max the model turns anything it doesn't hear as voice (quiet word
+    // endings, claps, breaths) into digital silence, which sounds like the sentence was cut off.
+    var voiceStrength: Float = 30
     var enhance = false
     var volume: Volume = .unchanged
     var gain: Float = 6                     // dB, when volume == .gain

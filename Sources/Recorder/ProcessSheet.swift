@@ -117,14 +117,16 @@ struct ProcessSheet: View {
 
     private var voiceCleanOptions: some View {
         VStack(alignment: .leading, spacing: 8) {
-            note("AI that keeps the voice and removes everything else, steady or not. It also removes instruments, so it's for vocals and speech.")
+            note("AI that keeps the voice and turns everything else down, steady or not: noise, room, and also claps and instruments, so it's for vocals and speech.")
             if VoiceClean.tool == nil {
                 note("Voice Clean isn't installed in this copy of Recorder. Rebuild it with build.sh while online.").foregroundStyle(Theme.record)
             }
             slider("Strength", value: Binding(get: { Double(s.voiceStrength) }, set: { s.voiceStrength = Float($0) }),
                    in: 10...Double(VoiceClean.maxStrength),
                    text: s.voiceStrength >= VoiceClean.maxStrength ? "Max" : String(format: "%.0f dB", s.voiceStrength),
-                   hint: "Lower keeps a little of the room, which can sound more natural.")
+                   hint: s.voiceStrength >= VoiceClean.maxStrength
+                       ? "Max removes everything that isn't voice, including claps and quiet word endings. Those parts become dead silence."
+                       : "How far noise is turned down. 20–40 dB sounds natural and keeps quiet endings and claps; Max removes them.")
         }
     }
 

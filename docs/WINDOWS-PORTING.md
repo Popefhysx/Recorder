@@ -173,8 +173,9 @@ behind a voice, and also removes instruments, so it's for speech and singing.
 - **Exactly what the Mac version does** (`VoiceClean.swift`):
   1. Write the source as a 32-bit float WAV. The tool can't read 24-bit ("TooWide").
   2. Run `deep-filter -D -a <strength> -o <tempdir> <input.wav>`. `-D` compensates the model's delay,
-     so the output lines up with the input sample for sample. `-a` is the attenuation limit in dB:
-     100 = maximum (the default); lower leaves some room sound.
+     so the output lines up with the input sample for sample. `-a` is the attenuation limit in dB.
+     The default is **30**. 100 (Max) turns anything the model doesn't hear as voice, like quiet word
+     endings, claps and breaths, into digital silence, which sounds like sentences being cut off.
   3. The tool writes 16-bit output about 30 ms (1440 samples) shorter. Pad it with silence back to
      the input's exact length and save it as 24-bit `"<name> voice clean.wav"`.
   4. Then the same clip bookkeeping as Denoise: `originalFile`, plus `"cleanup": "voiceClean"` on the
@@ -278,7 +279,7 @@ My Song/
       "fadeIn": 0, "fadeOut": 0,
       "originalFile": "...",                                   // † set when file is a cleaned copy
       "cleanup": "denoise",                                    // † first version only: "denoise" | "voiceClean"
-      "processingValue": {"noise": "voiceClean", "denoiseReduction": 15, "voiceStrength": 100,
+      "processingValue": {"noise": "voiceClean", "denoiseReduction": 15, "voiceStrength": 30,
                           "enhance": true, "volume": "gain", "gain": 6}   // † unchanged | normalize | gain
     }]
   }]
