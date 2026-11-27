@@ -61,10 +61,16 @@ struct RecorderApp: App {
                 Button("Split at Playhead") { session.splitAtPlayhead() }.keyboardShortcut("t")
                 Button("Delete Clip") { session.deleteSelectedClip() }.keyboardShortcut(.delete)
                 Divider()
-                Button("Denoise Clip…") { session.selection.map { session.cleanupTarget = .init(ref: $0, tool: .denoise) } }
+                Button("Remove Silence…") { session.silenceTarget = session.selection }
+                    .keyboardShortcut("s", modifiers: [.command, .option])
+                    .disabled(session.selection == nil)
+                Button("Clean Up & Enhance Clip…") { session.selection.map { session.processTarget = .init(ref: $0) } }
+                    .keyboardShortcut("e", modifiers: [.command, .option])
+                    .disabled(session.selection == nil)
+                Button("Denoise Clip…") { session.selection.map { session.processTarget = .init(ref: $0, preset: .denoise) } }
                     .keyboardShortcut("n", modifiers: [.command, .option])
                     .disabled(session.selection == nil)
-                Button("Voice Clean Clip…") { session.selection.map { session.cleanupTarget = .init(ref: $0, tool: .voiceClean) } }
+                Button("Voice Clean Clip…") { session.selection.map { session.processTarget = .init(ref: $0, preset: .voiceClean) } }
                     .keyboardShortcut("v", modifiers: [.command, .option])
                     .disabled(session.selection == nil)
             }

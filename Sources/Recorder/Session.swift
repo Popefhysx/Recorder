@@ -41,6 +41,14 @@ final class Session: ObservableObject {
         lastEdit = Date()
     }
 
+    /// Makes `change` its own undo step, never merged with an edit just before or after it.
+    /// For one-off commands (Remove Silence, clean-up) that can follow a drag within 0.6 s.
+    func asOneUndoStep(_ change: () -> Void) {
+        lastEdit = .distantPast
+        change()
+        lastEdit = .distantPast
+    }
+
     var canUndo: Bool { !undoStack.isEmpty && !isRecording }
     var canRedo: Bool { !redoStack.isEmpty && !isRecording }
 
@@ -219,12 +227,18 @@ final class Session: ObservableObject {
         project.tracks.first { $0.id == ref.track }?.clips.first { $0.id == ref.clip }
     }
 
-    // MARK: clean-up (Denoise, Voice Clean)
+    // MARK: clean-up and enhancement
 
-    /// What the clean-up sheet is open for.
-    struct CleanupRequest: Equatable { var ref: ClipRef; var tool: CleanupTool }
-    @Published var cleanupTarget: CleanupRequest?
-    @Published var cleanupProgress: Double?
+    /// What the Clean Up & Enhance sheet is open for, and which part to switch on when it opens.
+    struct ProcessRequest: Equatable {
+        enum Preset { case denoise, voiceClean, enhance }
+        var ref: ClipRef
+        var preset: Preset?
+    }
+    @Published var processTarget: ProcessRequest?
+    /// The clip the Remove Silence sheet is open for.
+    @Published var silenceTarget: ClipRef?
+    @Published var processProgress: Double?
 
     /// The part of the loop region that lies over the clip, as seconds in the clip's file.
     func loopNoiseRange(_ ref: ClipRef) -> Range<Double>? {
@@ -234,47 +248,33 @@ final class Session: ObservableObject {
         return (c.offset + a - c.start)..<(c.offset + b - c.start)
     }
 
-    enum Cleanup {
-        case denoise(reduction: Float, fromLoop: Bool)
-        case voiceClean(strength: Float)
-        var tool: CleanupTool { if case .denoise = self { .denoise } else { .voiceClean } }
-    }
-
-    /// Writes a cleaned copy of the clip's recording and points the clip (and any other clip cut
-    /// from the same recording) at it. Always works from the untouched original, so running it
-    /// again replaces the earlier result instead of stacking.
-    func cleanUp(_ ref: ClipRef, _ how: Cleanup, completion: ((Bool) -> Void)? = nil) {
-        guard !isRecording, cleanupProgress == nil, let audio = audioFolder, let c = clip(ref) else { completion?(false); return }
+    /// Makes a processed copy of the clip's original recording (noise removal, then enhancement,
+    /// then volume) and points the clip, and any other clip cut from the same recording, at it.
+    /// Always starts from the original, so changing settings replaces the result instead of stacking.
+    func process(_ ref: ClipRef, _ settings: ClipProcessing, denoiseFromLoop: Bool = false, completion: ((Bool) -> Void)? = nil) {
+        guard !isRecording, processProgress == nil, let audio = audioFolder, let c = clip(ref) else { completion?(false); return }
+        if settings.isEmpty { removeProcessing(ref); completion?(true); return }
         let source = c.originalFile ?? c.file
         let current = c.file
         var range: Range<Double>?
-        if case .denoise(_, true) = how {
+        if settings.noise == .denoise, denoiseFromLoop {
             range = loopNoiseRange(ref)
             if range == nil {
                 problem = "Put the loop region over a part of this clip that is only noise (at least 0.2 s), then try again."
                 completion?(false); return
             }
         }
-        let tool = how.tool
-        let base = ((source as NSString).deletingPathExtension) + " " + tool.fileSuffix
+        let base = ((source as NSString).deletingPathExtension) + " processed"
         var name = base + ".wav", n = 2
         while FileManager.default.fileExists(atPath: audio.appendingPathComponent(name).path) { name = "\(base) \(n).wav"; n += 1 }
         let src = audio.appendingPathComponent(source), dest = audio.appendingPathComponent(name)
-        cleanupProgress = 0
+        processProgress = 0
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = Result {
-                switch how {
-                case .denoise(let reduction, _):
-                    try Denoise.process(source: src, dest: dest, options: .init(reduction: reduction, profile: range)) { p in
-                        DispatchQueue.main.async { self?.cleanupProgress = p }
-                    }
-                case .voiceClean(let strength):
-                    try VoiceClean.process(source: src, dest: dest, strength: strength)
-                }
-            }
+            let report: (Double) -> Void = { p in DispatchQueue.main.async { self?.processProgress = p } }
+            let result = Result { try Self.render(src, to: dest, settings, noiseRange: range, progress: report) }
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.cleanupProgress = nil
+                self.processProgress = nil
                 switch result {
                 case .success:
                     var p = self.project
@@ -282,11 +282,11 @@ final class Session: ObservableObject {
                         for i in p.tracks[t].clips.indices where p.tracks[t].clips[i].file == current {
                             p.tracks[t].clips[i].file = name
                             p.tracks[t].clips[i].originalFile = source
-                            p.tracks[t].clips[i].cleanup = tool
+                            p.tracks[t].clips[i].processing = settings
                         }
                     }
                     self.waveforms.load(name, folder: audio)
-                    self.project = p
+                    self.asOneUndoStep { self.project = p }
                     try? self.save()
                     completion?(true)
                 case .failure(let error):
@@ -298,19 +298,49 @@ final class Session: ObservableObject {
         }
     }
 
+    /// The processing chain, off the main thread. Intermediate steps go through temp files.
+    private static func render(_ src: URL, to dest: URL, _ s: ClipProcessing, noiseRange: Range<Double>?,
+                               progress: @escaping (Double) -> Void) throws {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("process-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let finishing = s.enhance || s.volume != .unchanged
+        var current = src
+        if let noise = s.noise {
+            let out = finishing ? work.appendingPathComponent("clean.wav") : dest
+            switch noise {
+            case .denoise:
+                try Denoise.process(source: current, dest: out, options: .init(reduction: s.denoiseReduction, profile: noiseRange)) {
+                    progress($0 * (finishing ? 0.5 : 1))
+                }
+            case .voiceClean:
+                try VoiceClean.process(source: current, dest: out, strength: s.voiceStrength)
+            }
+            current = out
+        }
+        guard finishing else { return }
+        let volume: Enhance.Volume = switch s.volume {
+            case .unchanged: .unchanged
+            case .normalize: .normalize
+            case .gain: .gain(s.gain)
+        }
+        let start = s.noise == nil ? 0.0 : 0.5
+        try Enhance.process(source: current, dest: dest, enhance: s.enhance, volume: volume) { progress(start + $0 * (1 - start)) }
+    }
+
     /// Puts the original recording back on the clip (and the other clips sharing its file).
-    func removeCleanup(_ ref: ClipRef) {
+    func removeProcessing(_ ref: ClipRef) {
         guard let c = clip(ref), let original = c.originalFile else { return }
         var p = project
         for t in p.tracks.indices {
             for i in p.tracks[t].clips.indices where p.tracks[t].clips[i].file == c.file {
                 p.tracks[t].clips[i].file = original
                 p.tracks[t].clips[i].originalFile = nil
-                p.tracks[t].clips[i].cleanup = nil
+                p.tracks[t].clips[i].processing = nil
             }
         }
         if let audio = audioFolder { waveforms.load(original, folder: audio) }
-        project = p
+        asOneUndoStep { project = p }
         try? save()
     }
 

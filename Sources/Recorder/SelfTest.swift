@@ -215,6 +215,13 @@ enum SelfTest {
         let gated = try seg(try render { $0.tracks[1].clips[0].file = "quiet.wav"; $0.tracks[1].gate = GateSettings(enabled: true, threshold: -40) }, 0.5, 1.8)
         let ungated = try seg(try render { $0.tracks[1].clips[0].file = "quiet.wav" }, 0.5, 1.8)
         check(gated.rms < ungated.rms * 0.1, String(format: "noise gate silences a -50 dB signal (%.1f dB)", 20 * log10(max(gated.rms, 1e-9) / ungated.rms)))
+        // A word's tail fading through the threshold (−20 → −60 dB over 2 s; crosses −45 dB at 1.25 s).
+        try writeSignal(folder.appendingPathComponent("Audio/tail.wav"), channels: 1, seconds: 2) { _, t in
+            Float(0.1 * pow(10, -t) * sin(2 * .pi * 1000 * t))
+        }
+        let tailGated = try seg(try render { $0.tracks[1].clips[0].file = "tail.wav"; $0.tracks[1].gate = GateSettings(enabled: true, threshold: -45) }, 1.3, 1.45)
+        let tailDry = try seg(try render { $0.tracks[1].clips[0].file = "tail.wav" }, 1.3, 1.45)
+        check(tailGated.rms > tailDry.rms * 0.2, String(format: "noise gate lets a fading word ending through (%.1f dB just below the threshold)", 20 * log10(max(tailGated.rms, 1e-9) / tailDry.rms)))
         let loudGated = try seg(try render { $0.tracks[1].gate = GateSettings(enabled: true, threshold: -40) }, 0.5, 1.8)
         check(abs(20 * log10(loudGated.rms / dry.rms)) < 1, String(format: "noise gate leaves a loud signal alone (%.2f dB)", 20 * log10(loudGated.rms / dry.rms)))
         try writeSignal(folder.appendingPathComponent("Audio/hum.wav"), channels: 1, seconds: 2) { _, t in 0.3 * Float(sin(2 * .pi * 50 * t)) }
@@ -440,7 +447,7 @@ enum SelfTest {
         let dnBefore = (noise: try segment(noisyURL, from: 0.3, to: 1.2).rms, tone: try segment(noisyURL, from: 1.7, to: 2.8).rms)
         let sem4 = DispatchSemaphore(value: 0)
         var denoised = false
-        DispatchQueue.main.async { session.cleanUp(noisyRef, .denoise(reduction: 24, fromLoop: false)) { ok in denoised = ok; sem4.signal() } }
+        DispatchQueue.main.async { session.process(noisyRef, ClipProcessing(noise: .denoise, denoiseReduction: 24)) { ok in denoised = ok; sem4.signal() } }
         _ = sem4.wait(timeout: .now() + 30)
         if let c = onMain({ session.clip(noisyRef) }), denoised, c.originalFile == "noisy.wav" {
             let url = audioDir.appendingPathComponent(c.file)
@@ -451,7 +458,7 @@ enum SelfTest {
             check(abs(toneChange) < 1, String(format: "denoise keeps the wanted sound within %.2f dB of the clean original", toneChange))
             check(abs(try samples(url).count - samples(noisyURL).count) == 0, "denoised file is exactly as long, so the clip stays in place")
             check(!onMain { session.unusedAudio() }.contains { $0.lastPathComponent == "noisy.wav" }, "the original is kept (not offered for deletion)")
-            onMain { session.removeCleanup(noisyRef) }
+            onMain { session.removeProcessing(noisyRef) }
             check(onMain { session.clip(noisyRef)?.file } == "noisy.wav", "Remove Denoise puts the original back")
         } else {
             check(false, "denoise runs on a clip and points it at the cleaned copy")
@@ -489,9 +496,9 @@ enum SelfTest {
             let sem5 = DispatchSemaphore(value: 0)
             var cleaned = false
             let started = Date()
-            DispatchQueue.main.async { session.cleanUp(talkRef, .voiceClean(strength: VoiceClean.maxStrength)) { ok in cleaned = ok; sem5.signal() } }
+            DispatchQueue.main.async { session.process(talkRef, ClipProcessing(noise: .voiceClean)) { ok in cleaned = ok; sem5.signal() } }
             _ = sem5.wait(timeout: .now() + 60)
-            if let c = onMain({ session.clip(talkRef) }), cleaned, c.cleanup == .voiceClean, c.originalFile == "talk.wav" {
+            if let c = onMain({ session.clip(talkRef) }), cleaned, c.processing?.noise == .voiceClean, c.originalFile == "talk.wav" {
                 let url = audioDir.appendingPathComponent(c.file)
                 let quietBefore = try segment(talkURL, from: 0.5, to: 0.95).rms, quietAfter = try segment(url, from: 0.5, to: 0.95).rms
                 let voiceAfter = try segment(url, from: voiceSpan.0, to: voiceSpan.1).rms
@@ -504,13 +511,112 @@ enum SelfTest {
                 func corr(_ k: Int) -> Double { stride(from: 0, to: 6000, by: 2).reduce(0.0) { $0 + Double(a[from + $1] * b[from + $1 + k]) } }
                 let lag = (-480...480).max { corr($0) < corr($1) } ?? 99
                 check(abs(lag) <= 2, "Voice Clean output lines up with the original (offset \(lag) samples)")
-                onMain { session.removeCleanup(talkRef) }
+                onMain { session.removeProcessing(talkRef) }
                 check(onMain { session.clip(talkRef)?.file } == "talk.wav", "Remove Voice Clean puts the original back")
             } else {
                 check(false, "Voice Clean runs on a clip and points it at the cleaned copy (\(onMain { session.problem } ?? "no message"))")
             }
             onMain { session.project.tracks[0].clips.removeAll { $0.id == talkRef.clip } }
         }
+
+        // Enhance and volume: gain, limiter, normalize, voice chain; then the whole chain on a clip.
+        func makeTone(_ name: String, _ f: @escaping (Double) -> Float) throws -> URL {
+            let url = audioDir.appendingPathComponent(name)
+            try writeSignal(url, channels: 2, seconds: 2) { _, t in f(t) }
+            return url
+        }
+        func amplitude(_ url: URL, _ freq: Double) throws -> Double {      // one DFT bin over 0.5–1.5 s
+            let x = try samples(url)
+            var re = 0.0, im = 0.0
+            for i in 24000..<72000 { let w = 2 * Double.pi * freq * Double(i) / Formats.rate; re += Double(x[i]) * cos(w); im += Double(x[i]) * sin(w) }
+            return 2 * sqrt(re * re + im * im) / 48000
+        }
+        let quietTone = try makeTone("q.wav") { Float(0.1 * sin(2 * .pi * 1000 * $0)) }
+        let louder = audioDir.appendingPathComponent("q +12.wav")
+        try Enhance.process(source: quietTone, dest: louder, enhance: false, volume: .gain(12))
+        let up = 20 * log10(try segment(louder, from: 0.5, to: 1.5).rms / segment(quietTone, from: 0.5, to: 1.5).rms)
+        let sameLength = try samples(louder).count == samples(quietTone).count
+        check(abs(up - 12) < 0.3 && sameLength,
+              String(format: "clip gain +12 dB raises the level by %.2f dB, same length", up))
+        let hot = try makeTone("h.wav") { Float(0.5 * sin(2 * .pi * 1000 * $0)) }
+        let slammed = audioDir.appendingPathComponent("h +24.wav")
+        try Enhance.process(source: hot, dest: slammed, enhance: false, volume: .gain(24))
+        let slam = try segment(slammed, from: 0.1, to: 1.9)
+        check(max(slam.l, slam.r) <= Enhance.ceiling + 1e-4 && slam.rms > 0.55,
+              String(format: "a +24 dB boost is held at −1 dB by the limiter (peak %.3f, rms %.3f)", max(slam.l, slam.r), slam.rms))
+        let normalized = audioDir.appendingPathComponent("q norm.wav")
+        try Enhance.process(source: quietTone, dest: normalized, enhance: false, volume: .normalize)
+        let np = try Enhance.peakLevel(AVAudioFile(forReading: normalized))
+        check(abs(np - Enhance.ceiling) < 0.01, String(format: "normalize brings the peak to −1 dB (%.1f dB)", 20 * log10(np)))
+        let rumbly = try makeTone("r.wav") { Float(0.05 * sin(2 * .pi * 40 * $0) + 0.05 * sin(2 * .pi * 1000 * $0)) }
+        let enhanced = audioDir.appendingPathComponent("r enhanced.wav")
+        try Enhance.process(source: rumbly, dest: enhanced, enhance: true, volume: .unchanged)
+        let ratioAfter = try amplitude(enhanced, 40) / amplitude(enhanced, 1000)
+        let ratioBefore = try amplitude(rumbly, 40) / amplitude(rumbly, 1000)
+        let rumbleCut = 20 * log10(ratioAfter / ratioBefore)
+        let ep = try Enhance.peakLevel(AVAudioFile(forReading: enhanced))
+        check(rumbleCut < -9 && abs(ep - Enhance.ceiling) < 0.02,
+              String(format: "Enhance voice cuts 40 Hz rumble by %.1f dB against the voice band and levels to %.1f dB peak", -rumbleCut, 20 * log10(ep)))
+        let chainRef: ClipRef = onMain {
+            let c = Clip(file: "noisy.wav", fileLength: 4, start: 50, duration: 4)
+            session.project.tracks[0].clips.append(c)
+            return ClipRef(track: session.project.tracks[0].id, clip: c.id)
+        }
+        let sem6 = DispatchSemaphore(value: 0)
+        var chained = false
+        let wanted = ClipProcessing(noise: .denoise, denoiseReduction: 20, enhance: true, volume: .gain, gain: 3)
+        DispatchQueue.main.async { session.process(chainRef, wanted) { ok in chained = ok; sem6.signal() } }
+        _ = sem6.wait(timeout: .now() + 60)
+        let chainedClip = onMain { session.clip(chainRef) }
+        let chainedLength = (try? samples(audioDir.appendingPathComponent(chainedClip?.file ?? "")).count) ?? -1
+        let noisyLength = (try? samples(audioDir.appendingPathComponent("noisy.wav")).count) ?? -2
+        let chainedSummary = chainedClip?.processing?.summary ?? "none"
+        check(chained && chainedClip?.processing == wanted && chainedSummary == "Denoise · Enhanced · +3 dB" && chainedLength == noisyLength,
+              "Denoise → Enhance → +3 dB runs as one chain on a clip (\(chainedSummary))")
+        onMain { session.removeProcessing(chainRef) }
+        check(onMain { session.clip(chainRef)?.file } == "noisy.wav", "Remove All puts the original back")
+        onMain { session.project.tracks[0].clips.removeAll { $0.id == chainRef.clip } }
+        // Remove Silence: sound at 0.8–1.5 and 1.8–2.0 s (a 0.3 s pause between, kept), 3.5–4.5 s;
+        // quiet floor elsewhere. Keep 0.1 s around sound; cut pauses of 0.5 s or more.
+        let phrasesURL = audioDir.appendingPathComponent("phrases.wav")
+        try writeSignal(phrasesURL, channels: 1, seconds: 6) { _, t in
+            let on = (0.8..<1.5).contains(t) || (1.8..<2.0).contains(t) || (3.5..<4.5).contains(t)
+            return Float((on ? 0.3 : 0.001) * sin(2 * .pi * 500 * t))
+        }
+        let (phraseRef, laterRef) = onMain { () -> (ClipRef, ClipRef) in
+            session.waveforms.set("phrases.wav", Waveforms.compute(phrasesURL))
+            let c = Clip(file: "phrases.wav", fileLength: 6, start: 60, duration: 6)
+            let later = Clip(file: "noisy.wav", fileLength: 4, start: 70, duration: 4)
+            session.project.tracks[0].clips += [c, later]
+            let id = session.project.tracks[0].id
+            return (ClipRef(track: id, clip: c.id), ClipRef(track: id, clip: later.id))
+        }
+        let silence = SilenceSettings(threshold: -40, minSilence: 0.5, keep: 0.1)
+        let preview = onMain { session.silencePreview(phraseRef, silence) }
+        let pieces = onMain { () -> [Clip] in
+            session.removeSilence(phraseRef, silence)
+            return session.project.tracks[0].clips.filter { $0.file == "phrases.wav" }.sorted { $0.start < $1.start }
+        }
+        func near(_ a: Double, _ b: Double) -> Bool { abs(a - b) < 0.02 }
+        check(pieces.count == 2 && near(pieces[0].start, 60.7) && near(pieces[0].offset, 0.7) && near(pieces[0].end, 62.1)
+              && near(pieces[1].start, 63.4) && near(pieces[1].end, 64.6) && preview?.cuts == 3,
+              String(format: "Remove Silence cuts the 3 long silences, keeps the short pause and 0.1 s around the sound (%@)",
+                     pieces.map { String(format: "%.2f–%.2f", $0.start, $0.end) }.joined(separator: ", ")))
+        onMain { session.undo() }
+        check(onMain { session.project.tracks[0].clips.filter { $0.file == "phrases.wav" }.count } == 1, "undo brings the silence back")
+        let tight = onMain { () -> (pieces: [Clip], later: Double) in
+            var closing = silence; closing.closeGaps = true
+            session.removeSilence(phraseRef, closing)
+            let p = session.project.tracks[0].clips.filter { $0.file == "phrases.wav" }.sorted { $0.start < $1.start }
+            return (p, session.clip(laterRef)?.start ?? -1)
+        }
+        check(tight.pieces.count == 2 && near(tight.pieces[0].start, 60) && near(tight.pieces[1].start, 61.4) && near(tight.later, 66.6),
+              String(format: "closing the gaps pulls the pieces and the later clip earlier (%.2f, %.2f; later clip %.2f)",
+                     tight.pieces.first?.start ?? -1, tight.pieces.last?.start ?? -1, tight.later))
+        onMain { session.project.tracks[0].clips.removeAll { $0.file == "phrases.wav" || $0.id == laterRef.clip } }
+        let legacy = #"{"id":"6F1A0E7C-8B7E-4C0B-9D0C-6F7E8D9A0B1C","file":"a voice clean.wav","fileLength":1,"start":0,"offset":0,"duration":1,"fadeIn":0,"fadeOut":0,"originalFile":"a.wav","cleanup":"voiceClean"}"#
+        let old = try JSONDecoder().decode(Clip.self, from: Data(legacy.utf8))
+        check(old.processing?.noise == .voiceClean, "clips cleaned by the earlier version still show as Voice Clean")
         onMain {
             if let t = songTrack { session.removeTrack(t.id) }
             session.project.tracks[1].clips.removeAll { $0.file.hasPrefix("beat 44k") }

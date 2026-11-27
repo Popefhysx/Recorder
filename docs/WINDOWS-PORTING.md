@@ -52,7 +52,8 @@ effects chain take far more hand-written code. JUCE is recommended.
 | `Exporter.swift` | Offline render of the whole mix to WAV/M4A; waveform peaks | Same Strip code run faster than real time; WAV via `WavAudioFormat`; M4A via Windows Media Foundation (`WindowsMediaAudioFormat`) or skip it |
 | `Importer.swift` | Converts WAV/AIFF/MP3/M4A/CAF/FLAC to 48 kHz WAV | `AudioFormatManager::registerBasicFormats()` + `juce::ResamplingAudioSource`/`LagrangeInterpolator` |
 | `Denoise.swift` | Noise-print spectral noise reduction (§5) | Port the algorithm exactly; it's plain maths |
-| `VoiceClean.swift`, `CleanupSheet.swift` | DeepFilterNet voice clean-up and the clean-up window (§5) | DeepFilterNet's Windows .exe as a child process |
+| `VoiceClean.swift`, `Enhance.swift`, `ProcessSheet.swift` | Voice Clean, Enhance + volume, and the Clean Up & Enhance window (§5) | DeepFilterNet's Windows .exe as a child process; port Enhance's DSP exactly |
+| `SilenceRemoval.swift` | Remove Silence auto-edit (§5) | Port as is; it only reads waveform peaks |
 | `Recovery.swift` | Disk-space limits, the in-progress marker, WAV header repair (§6) | Same logic; disk space via `GetDiskFreeSpaceExW` / `juce::File::getBytesFreeOnVolume` |
 | `ContentView`, `Sidebar`, `TimelineView`, `Theme`, `DenoiseSheet` | UI | JUCE `Component`s. The screenshots and the colour values in `Theme.swift` give the look |
 | `SelfTest.swift` | End-to-end checks behind `--selftest` | Port the checks as a test runner; they're the acceptance criteria (§8) |
@@ -99,7 +100,7 @@ equal-power pan).
 | Stage | Settings |
 |---|---|
 | Boost | Gain 0…+24 dB, bypassed at 0 |
-| Gate | Downward expander: threshold −80…−10 dB (default −45), ratio 50:1, attack 1 ms, release 80 ms, no compression above threshold |
+| Gate | Downward expander: threshold −80…−10 dB (default −45), ratio 4:1, attack 1 ms, release 250 ms, no compression above threshold. (50:1 / 80 ms chopped word endings to silence.) |
 | Hum filter (in the EQ unit) | Notches at mains frequency ×1, ×2, ×3 (50 or 60 Hz), −40 dB, bandwidth 0.08 octave |
 | Low cut | 80 Hz high-pass |
 | EQ | 9 bands, ±12 dB, 0.5 dB steps. Bells at the geometric centre of each range with bandwidth = range in octaves; "Air" is a high shelf at 10 kHz. Bands: Sub-bass 20–60 Hz · Bass 60–250 · Low mids 250–500 · Midrange 500–1k · Upper mids 1–2k · Presence 2–4k · High presence 4–6k · Treble 6–10k · Air 10–20k. A band at 0 dB is bypassed. |
@@ -184,6 +185,41 @@ behind a voice, and also removes instruments, so it's for speech and singing.
 - **Known limit:** a *pure* 50 Hz sine passes through untouched, because the model hears it as a tone.
   Real mains hum has harmonics and is removed. For a pure hum, use the Gate's hum filter.
 
+### Clean Up & Enhance chain
+
+A clip's `processing` settings are rendered from `originalFile` in this order, each step's output
+feeding the next, into one new 24-bit file `"<name> processed.wav"` of the source's exact length.
+Changing settings re-renders from the original; "Remove All" restores it.
+
+1. **Noise:** none, Denoise (above) or Voice Clean (above).
+2. **Enhance voice** (`Enhance.swift`):
+   - Bring the take to −3 dBFS peak.
+   - EQ: 80 Hz high-pass (Q 0.707); −2.5 dB bell at 250 Hz (Q 1); +3 dB bell at 3.2 kHz (Q 1); +2.5 dB
+     high shelf at 10 kHz. These are RBJ biquads.
+   - Compress: a peak detector in dB, attack 5 ms, release 120 ms, 3:1 above −22 dBFS, linked across
+     channels.
+   - Then bring it to −1 dBFS peak.
+3. **Volume:** unchanged, normalize (peak to −1 dBFS), or gain −12…+24 dB (on top of Enhance's level
+   when that's on).
+   - Any gain goes through a look-ahead limiter: 5 ms delay, ceiling −1 dBFS, release 80 ms, with a
+     hard clamp as a final guarantee.
+   - The look-ahead delay is dropped from the start and flushed at the end, so the output stays
+     aligned.
+
+### Remove Silence
+
+Non-destructive auto-edit (`SilenceRemoval.swift`). It reads the waveform peaks (max |x| per
+256 frames).
+
+- **What counts as silence:** a run of points below the threshold, at least "shortest pause" long
+  (default 0.5 s).
+- **What's cut:** the silence minus the "keep" margin (default 0.15 s) on any side next to sound.
+- **What remains:** each kept range becomes a clip over the same file. Cut edges get a 10 ms fade-in
+  and a 30 ms fade-out. Pieces shorter than 50 ms are dropped.
+- **Default threshold:** the 10th-percentile peak + 12 dB, clamped to −70…−25 dB.
+- **"Close the gaps":** moves every clip on the track earlier by the total silence removed before it.
+- **Undo:** it is a single undo step.
+
 ## 6. Safety and recovery
 
 - **Before recording:** refuse unless free space ≥ 2 minutes of audio for the armed channels
@@ -241,7 +277,9 @@ My Song/
       "start": 0.0, "offset": 0.0, "duration": 20.99,
       "fadeIn": 0, "fadeOut": 0,
       "originalFile": "...",                                   // † set when file is a cleaned copy
-      "cleanup": "denoise"                                     // † "denoise" | "voiceClean"
+      "cleanup": "denoise",                                    // † first version only: "denoise" | "voiceClean"
+      "processingValue": {"noise": "voiceClean", "denoiseReduction": 15, "voiceStrength": 100,
+                          "enhance": true, "volume": "gain", "gain": 6}   // † unchanged | normalize | gain
     }]
   }]
 }

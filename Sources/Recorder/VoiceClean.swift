@@ -5,7 +5,8 @@ import AVFoundation
 /// the model separates speech or singing from any noise, steady or not.
 ///
 /// The tool reads 16-bit or float WAVs only (not 24-bit), writes 16-bit, and with `-D` returns
-/// output aligned to the input but 30 ms shorter. So: source → float temp → tool → padded 24-bit.
+/// output aligned to the input but 30 ms shorter. So: source + 0.1 s silence → float temp → tool →
+/// cut to the source's exact length, 24-bit.
 enum VoiceClean {
     static var tool: URL? {
         guard let url = Bundle.main.url(forAuxiliaryExecutable: "deep-filter"),
@@ -36,7 +37,9 @@ enum VoiceClean {
         let channels = Int(input.processingFormat.channelCount)
         let total = input.length
         let floatCopy = work.appendingPathComponent("in.wav")
-        try copy(input, to: floatCopy, bits: 32, float: true, length: total)
+        // 0.1 s of extra silence: the tool returns 1440 samples fewer than it's given, so without
+        // this the last 30 ms of the take would be replaced by silence.
+        try copy(input, to: floatCopy, bits: 32, float: true, length: total + 4800)
 
         let run = Process()
         run.executableURL = tool

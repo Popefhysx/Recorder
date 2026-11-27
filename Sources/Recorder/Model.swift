@@ -147,6 +147,33 @@ enum CleanupTool: String, Codable {
     var fileSuffix: String { self == .denoise ? "denoised" : "voice clean" }
 }
 
+/// Clean-up and enhancement applied to a clip, always starting from its original recording:
+/// noise removal, then voice enhancement, then volume.
+struct ClipProcessing: Codable, Equatable {
+    enum Volume: String, Codable, CaseIterable { case unchanged, normalize, gain }
+    var noise: CleanupTool?
+    var denoiseReduction: Float = 15
+    var voiceStrength: Float = 100
+    var enhance = false
+    var volume: Volume = .unchanged
+    var gain: Float = 6                     // dB, when volume == .gain
+
+    var isEmpty: Bool { noise == nil && !enhance && (volume == .unchanged || (volume == .gain && gain == 0)) }
+
+    /// e.g. "Voice Clean · Enhanced · +6 dB"
+    var summary: String {
+        var parts: [String] = []
+        if let noise { parts.append(noise.title) }
+        if enhance { parts.append("Enhanced") }
+        switch volume {
+        case .unchanged: break
+        case .normalize: parts.append("Normalized")
+        case .gain: if gain != 0 { parts.append(String(format: "%+.0f dB", gain)) }
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
 struct Clip: Codable, Equatable, Identifiable {
     var id = UUID()
     var file: String             // file name inside Audio/
@@ -156,9 +183,16 @@ struct Clip: Codable, Equatable, Identifiable {
     var duration: Double         // seconds
     var fadeIn: Double = 0
     var fadeOut: Double = 0
-    /// The untouched recording when `file` is a cleaned copy (Denoise, Voice Clean); nil otherwise.
+    /// The untouched recording when `file` is a processed copy; nil otherwise.
     var originalFile: String?
-    var cleanup: CleanupTool?
+    var cleanup: CleanupTool?               // first version: the one clean-up tool used
+    var processingValue: ClipProcessing?
+
+    /// How `file` was made from `originalFile`. Older clips that only recorded `cleanup` read as that.
+    var processing: ClipProcessing? {
+        get { processingValue ?? cleanup.map { ClipProcessing(noise: $0) } }
+        set { processingValue = newValue; cleanup = nil }
+    }
 
     var end: Double { start + duration }
 

@@ -133,7 +133,8 @@ final class Strip {
         boost.globalGain = track.boost
         boost.bypass = track.boost == 0
 
-        // Gate: a hard downward expander below the threshold, no compression above it.
+        // Gate: a downward expander below the threshold, no compression above it. 4:1 with a 250 ms
+        // release lets word endings fade out; the first version (50:1, 80 ms) chopped them to silence.
         let g = track.gate
         gate.bypass = !g.enabled
         if let unit = gate.audioUnit as AudioUnit? {
@@ -141,9 +142,9 @@ final class Strip {
             set(UInt32(kDynamicsProcessorParam_Threshold), 20)
             set(UInt32(kDynamicsProcessorParam_HeadRoom), 40)
             set(UInt32(kDynamicsProcessorParam_ExpansionThreshold), g.threshold)
-            set(UInt32(kDynamicsProcessorParam_ExpansionRatio), 50)
+            set(UInt32(kDynamicsProcessorParam_ExpansionRatio), 4)
             set(UInt32(kDynamicsProcessorParam_AttackTime), 0.001)
-            set(UInt32(kDynamicsProcessorParam_ReleaseTime), 0.08)
+            set(UInt32(kDynamicsProcessorParam_ReleaseTime), 0.25)
             set(6, 0)
         }
 

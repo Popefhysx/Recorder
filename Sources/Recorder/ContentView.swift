@@ -19,8 +19,11 @@ struct ContentView: View {
         }
         .ignoresSafeArea(.container, edges: .top)
         .background(Theme.background)
-        .sheet(isPresented: Binding(get: { session.cleanupTarget != nil }, set: { if !$0 { session.cleanupTarget = nil } })) {
-            if let t = session.cleanupTarget { CleanupSheet(ref: t.ref, tool: t.tool) }
+        .sheet(isPresented: Binding(get: { session.processTarget != nil }, set: { if !$0 { session.processTarget = nil } })) {
+            if let t = session.processTarget { ProcessSheet(ref: t.ref, current: session.clip(t.ref)?.processing, preset: t.preset) }
+        }
+        .sheet(isPresented: Binding(get: { session.silenceTarget != nil }, set: { if !$0 { session.silenceTarget = nil } })) {
+            if let ref = session.silenceTarget { SilenceSheet(ref: ref) }
         }
         .foregroundStyle(Theme.text)
         .tint(Theme.purple)

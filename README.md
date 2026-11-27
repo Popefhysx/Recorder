@@ -5,12 +5,15 @@ them, and export a WAV or M4A. A smaller Studio One, built for one person with o
 
 - **Record:** per-track input (mono or stereo pair), arm, count-in, metronome, live monitoring,
   per-track input Boost for quiet mics, and a warning when an armed track hears nothing.
-- **Edit:** move, trim, split, fades, delete, snap to beats, undo/redo, import audio files.
+- **Edit:** move, trim, split, fades, delete, snap to beats, undo/redo, import audio files, and
+  Remove Silence (cuts quiet stretches, optionally closing the gaps; non-destructive).
 - **Mix:** volume, pan, mute, solo, master. Per track: noise gate + hum filter + low cut, a 9-band EQ
   (20 Hz – 20 kHz), compressor, delay (tempo-synced) and reverb.
 - **Clean up:** Denoise learns a noise print (automatically, or from the loop region) and removes
   steady hiss and hum. Voice Clean uses DeepFilterNet (a neural model) to keep the voice and remove
-  any noise behind it. Both keep the original recording.
+  any noise behind it. Enhance voice (EQ polish, compression, leveling) and clip volume (normalize or
+  gain through a limiter) follow in the same Clean Up & Enhance window. All of it works from the
+  original recording, which is always kept.
 - **Keys:** Space play/pause, Return back to the start (also mid-take), ⇧Return to the end, ← / → 5 s,
   R record, I listen (soundcheck), L loop, K metronome, G snap, S split, Delete. All changeable in
   Keyboard Shortcuts (⌘,).
