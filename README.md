@@ -55,8 +55,8 @@ same projects.
 
 ## Redesigning the interface
 
-The interface is SwiftUI in this repo. [docs/DESIGNER-GUIDE.md](docs/DESIGNER-GUIDE.md) says which files to
-edit, how to run the app, and what not to touch.
+[docs/UI-SPEC.md](docs/UI-SPEC.md) describes every screen, control, state and color for a designer
+working without the code. One design covers both the Mac app and the Windows port.
 
 ## Windows
 
