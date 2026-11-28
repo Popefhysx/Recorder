@@ -53,6 +53,11 @@ A project is a folder: `project.json` plus an `Audio/` folder of 48 kHz 24-bit W
 described in [docs/WINDOWS-PORTING.md](docs/WINDOWS-PORTING.md#project-format), so a port can open the
 same projects.
 
+## Redesigning the interface
+
+The interface is SwiftUI in this repo. [docs/DESIGNER-GUIDE.md](docs/DESIGNER-GUIDE.md) says which files to
+edit, how to run the app, and what not to touch.
+
 ## Windows
 
 This app uses Apple-only frameworks. [docs/WINDOWS-PORTING.md](docs/WINDOWS-PORTING.md) is the guide
