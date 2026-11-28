@@ -8,7 +8,7 @@ import SwiftUI
 /// so Space and Return silently stopped working. They still step aside while a text field is being
 /// edited, and in sheets, popovers and dialogs, where Return and Space belong to those controls.
 enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
-    case playPause, record, returnToStart, goToEnd, back, forward, loop, metronome, snap, split, deleteClip, listen
+    case playPause, record, returnToStart, goToEnd, back, forward, loop, metronome, snap, split, deleteClip, listen, inputOnOff
 
     var id: String { rawValue }
 
@@ -25,7 +25,8 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
         case .snap: "Snap to beats on / off"
         case .split: "Split at playhead"
         case .deleteClip: "Delete selected clip"
-        case .listen: "Listen to input (soundcheck)"
+        case .listen: "Listen (headphones button) on / off"
+        case .inputOnOff: "Input on / off"
         }
     }
 
@@ -33,6 +34,8 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .returnToStart: "While recording, this stops the take (keeping it) and goes back. With loop on, it goes to the loop start."
         case .playPause: "While recording, this stops the take."
+        case .listen: "Turns on the headphones button of the selected track (or the first one you can hear)."
+        case .inputOnOff: "Off closes the mic so the interface stays quiet. Arming a track or Listen turns it back on."
         default: nil
         }
     }
@@ -51,6 +54,7 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
         case .split: KeyCombo(keyCode: 1, label: "S")
         case .deleteClip: KeyCombo(keyCode: 51, label: "Delete")
         case .listen: KeyCombo(keyCode: 34, label: "I")
+        case .inputOnOff: KeyCombo(keyCode: 34, shift: true, label: "I")
         }
     }
 }
@@ -200,6 +204,7 @@ extension Session {
         case .split: splitAtPlayhead()
         case .deleteClip: deleteSelectedClip()
         case .listen: toggleListen()
+        case .inputOnOff: toggleInput()
         }
     }
 }

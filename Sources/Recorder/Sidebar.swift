@@ -75,7 +75,7 @@ struct TrackCard: View {
                         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(track.monitor ? .clear : Theme.border))
                 }
                 .buttonStyle(.plain)
-                .help("Hear this track's input live, with its effects (use headphones)")
+                .help(Shortcuts.shared.hint("Listen: hear this track's input live, with its effects, for a soundcheck or while recording. Use headphones", .listen))
                 Slider(value: Gain.binding($track.volume)).controlSize(.small).padding(.leading, 2)
                     .help(Gain.dbText(track.volume))
             }

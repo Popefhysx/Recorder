@@ -33,7 +33,7 @@ components:
   - id: input
     name: Input recorder
     kind: pipeline
-    does: Opens the input device only when needed; writes 48 kHz 24-bit takes; meters; monitor ring
+    does: Opens the input device only when needed (closed when the user switches the input off); writes 48 kHz 24-bit takes; meters; monitor ring
     status: live
     breaks: {severity: critical, effect: "Cannot record", degrades: [playback]}
   - id: export

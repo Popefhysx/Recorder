@@ -367,6 +367,27 @@ enum SelfTest {
             return ok
         }
         check(skipsMuted, "Listen skips a muted selected track and uses one you can hear")
+        // Input off closes the mic even with the app in front; Listen turns it back on.
+        let savedOff = UserDefaults.standard.object(forKey: "inputOff")
+        let inputSwitch = onMain { () -> (Bool, Bool, Bool, Bool) in
+            let always = session.monitorAlways, active = session.appActive, wasRunning = session.recorder.isRunning
+            session.monitorAlways = false; session.appActive = true
+            session.project.tracks[0].armed = true
+            session.toggleInput()
+            let closed = session.inputOff && !session.recorder.isRunning && !session.project.tracks.contains { $0.armed }
+            session.toggleListen()
+            let back = !session.inputOff && session.recorder.isRunning
+            session.toggleListen()
+            session.toggleInput(); session.toggleInput()
+            let toggled = !session.inputOff && session.recorder.isRunning
+            session.monitorAlways = wasRunning; session.appActive = active; session.refreshInput()
+            session.monitorAlways = always
+            return (closed, back, toggled, session.recorder.isRunning == wasRunning)
+        }
+        if let savedOff { UserDefaults.standard.set(savedOff, forKey: "inputOff") } else { UserDefaults.standard.removeObject(forKey: "inputOff") }
+        check(inputSwitch.0, "Input off closes the mic and disarms, even with the app in front")
+        check(inputSwitch.1, "Listen switches the input back on")
+        check(inputSwitch.2 && inputSwitch.3, "the input switch turns off and on again")
 
         // Monitoring a 24 kHz input (a Bluetooth headset mic) must play, at the right pitch.
         do {

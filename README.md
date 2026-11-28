@@ -4,7 +4,7 @@ A light multitrack recorder for macOS: record several tracks from an audio inter
 them, and export a WAV or M4A. A smaller Studio One, built for one person with one interface.
 
 - **Record:** per-track input (mono or stereo pair), arm, count-in, metronome, live monitoring,
-  per-track input Boost for quiet mics, and a warning when an armed track hears nothing.
+  per-track input Boost for quiet mics, an input on/off switch (closes the mic so the interface stays quiet), and a warning when an armed track hears nothing.
 - **Edit:** move, trim, split, fades, delete, snap to beats, undo/redo, import audio files, and
   Remove Silence (cuts quiet stretches, optionally closing the gaps; non-destructive).
 - **Mix:** volume, pan, mute, solo, master. Per track: noise gate + hum filter + low cut, a 9-band EQ
@@ -15,7 +15,7 @@ them, and export a WAV or M4A. A smaller Studio One, built for one person with o
   gain through a limiter) follow in the same Clean Up & Enhance window. All of it works from the
   original recording, which is always kept.
 - **Keys:** Space play/pause, Return back to the start (also mid-take), ⇧Return to the end, ← / → 5 s,
-  R record, I listen (soundcheck), L loop, K metronome, G snap, S split, Delete. All changeable in
+  R record, I listen (the headphones button: hear your input live), ⇧I input on/off, L loop, K metronome, G snap, S split, Delete. All changeable in
   Keyboard Shortcuts (⌘,).
 - **Safe:** refuses to record without disk space, stops cleanly when the disk fills, and recovers a
   take cut off by a crash or power loss on the next launch.

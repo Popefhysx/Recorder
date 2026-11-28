@@ -57,7 +57,7 @@ struct TopBar: View {
                 Spacer(minLength: 12)
                 SaveControls()
                 InputPicker()
-                ListenButton()
+                InputSwitch()
                 OutputPicker()
                 Button { showSettings.toggle() } label: {
                     Image(systemName: "gearshape").font(.system(size: 17))
@@ -167,7 +167,7 @@ struct InputPicker: View {
             }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "mic").font(.system(size: 15))
+                Image(systemName: session.inputOff ? "mic.slash" : "mic").font(.system(size: 15))
                 Text(label).font(.system(size: 14, weight: .medium)).lineLimit(1)
                 InputMeters()
                 Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
@@ -188,24 +188,22 @@ struct InputPicker: View {
     }
 }
 
-/// Soundcheck: hear yourself through the track's effects while checking the input level.
-struct ListenButton: View {
+/// Switches the input off (mic closed, no meters, no monitoring) and back on.
+struct InputSwitch: View {
     @EnvironmentObject private var session: Session
     var body: some View {
-        let on = session.isListening
-        Button { session.toggleListen() } label: {
-            HStack(spacing: 5) {
-                Image(systemName: on ? "ear.fill" : "ear").font(.system(size: 14))
-                Text("Listen").font(.system(size: 13, weight: .medium))
-            }
-            .foregroundStyle(on ? .white : Theme.text)
-            .padding(.horizontal, 12).frame(height: 40)
-            .background(Capsule().fill(on ? Theme.purple : .white))
-            .overlay(Capsule().strokeBorder(on ? .clear : Theme.border))
-            .contentShape(Capsule())
+        let off = session.inputOff
+        Button { session.toggleInput() } label: {
+            Image(systemName: off ? "mic.slash.fill" : "mic.fill").font(.system(size: 15))
+                .foregroundStyle(off ? .white : Theme.text)
+                .frame(width: 40, height: 40)
+                .background(Circle().fill(off ? Theme.record : .white))
+                .overlay(Circle().strokeBorder(off ? .clear : Theme.border))
+                .contentShape(Circle())
         }
-        .buttonStyle(.plain).fixedSize()
-        .help(Shortcuts.shared.hint(on ? "Stop listening to the input" : "Listen to your input live (soundcheck), through the selected track's effects. Use headphones", .listen))
+        .buttonStyle(.plain)
+        .help(Shortcuts.shared.hint(off ? "Input is off. Click to turn it back on (arming a track or Listen also does)"
+                                        : "Turn the input off when you're not using it, so the interface makes no noise", .inputOnOff))
     }
 }
 
@@ -225,7 +223,7 @@ struct OutputPicker: View {
                 }
             }
         } label: {
-            Image(systemName: "headphones").font(.system(size: 16))
+            Image(systemName: "speaker.wave.2").font(.system(size: 16))
                 .frame(width: 40, height: 40)
                 .background(Circle().fill(.white)).overlay(Circle().strokeBorder(Theme.border))
                 .contentShape(Circle())

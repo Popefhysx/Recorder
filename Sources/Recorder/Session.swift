@@ -95,6 +95,19 @@ final class Session: ObservableObject {
         didSet { UserDefaults.standard.set(preferredInputUID, forKey: "inputUID"); refreshInput() }
     }
     @Published var outputs: [InputDevice] = []
+    /// The input switched off by the user: no mic, meters or monitoring, so the interface makes no
+    /// noise. Arming a track or pressing Listen switches it back on.
+    @Published var inputOff = UserDefaults.standard.bool(forKey: "inputOff") {
+        didSet { if inputOff != oldValue { UserDefaults.standard.set(inputOff, forKey: "inputOff"); refreshInput() } }
+    }
+
+    func toggleInput() {
+        if inputOff { inputOff = false; return }
+        if isRecording { problem = "Stop recording before switching the input off."; return }
+        for i in project.tracks.indices { project.tracks[i].armed = false; project.tracks[i].monitor = false }
+        inputOff = true
+    }
+
     @Published var preferredOutputUID: String? = UserDefaults.standard.string(forKey: "outputUID") {
         didSet { UserDefaults.standard.set(preferredOutputUID, forKey: "outputUID"); applyOutput(force: true) }
     }
@@ -154,6 +167,7 @@ final class Session: ObservableObject {
     }
 
     private func projectChanged(_ old: Project) {
+        if inputOff, project.tracks.contains(where: { $0.armed || $0.monitor }) { inputOff = false }
         if old.tracks.map(\.id) != project.tracks.map(\.id) || old.tracks.map(\.armed) != project.tracks.map(\.armed) {
             refreshInput()
         }
@@ -564,7 +578,7 @@ final class Session: ObservableObject {
     /// The mic stays open only while a track is armed, so the orange mic light means something.
     func refreshInput() {
         // Input meters run whenever the app is open (the self-test sessions excepted).
-        let wanted = !armedTracks.isEmpty || appActive || monitorAlways || !monitoredTracks.isEmpty
+        let wanted = !armedTracks.isEmpty || (appActive && !inputOff) || monitorAlways || !monitoredTracks.isEmpty
         if !wanted {
             if !isRecording { recorder.stop(); levels.inputs = [] }
             return
@@ -615,7 +629,7 @@ final class Session: ObservableObject {
 
     /// Reopens the input if the preferred device came back, or the current one went away.
     private func refreshInputDevice() {
-        guard !armedTracks.isEmpty || appActive else { return }
+        guard !armedTracks.isEmpty || (appActive && !inputOff) else { return }
         let gone = recorder.device.map { d in !devices.contains { $0.id == d.id } } ?? false
         let back = activeDevice != nil && recorder.device?.id != activeDevice?.id
         if gone || back || !recorder.isRunning {
