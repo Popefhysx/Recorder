@@ -141,6 +141,8 @@ final class Session: ObservableObject {
             self?.stop()
         }
         recorder.onInterrupted = { [weak self] in self?.inputInterrupted() }
+        playback.master.onProblem = { [weak self] in self?.problem = $0 }
+        playback.master.onLoaded = { [weak self] in self?.objectWillChange.send() }
         playback.onDeviceLost = { [weak self] in DispatchQueue.main.async { self?.applyOutput(force: true) } }
         outputs = AudioDevices.outputDevices()
         applyOutput(force: true)
@@ -175,6 +177,39 @@ final class Session: ObservableObject {
         playback.sync(project)
         let monitorKey = { (p: Project) in p.tracks.map { "\($0.id)\($0.monitor)\($0.stereo)\($0.inputChannel)" } }
         if monitorKey(old) != monitorKey(project) { updateMonitoring() }
+    }
+
+    // MARK: master plugins
+
+    static let maxMasterPlugins = 6
+
+    func addPlugin(_ c: AVAudioUnitComponent) {
+        guard project.masterPlugins.count < Self.maxMasterPlugins else { return }
+        let p = MasterPlugin(c)
+        project.masterPlugins.append(p)
+        // Open its window once it has loaded, so SonoBus's connect screen (or the knobs) appear.
+        func open(_ tries: Int) {
+            if let u = playback.master.units[p.id] { PluginWindows.shared.show(p, unit: u); return }
+            if tries > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { open(tries - 1) } }
+        }
+        open(25)
+    }
+
+    func removePlugin(_ id: UUID) {
+        PluginWindows.shared.close(id)
+        project.masterPlugins.removeAll { $0.id == id }
+    }
+
+    func setPluginBypass(_ id: UUID, _ bypass: Bool) {
+        guard let i = project.masterPlugins.firstIndex(where: { $0.id == id }) else { return }
+        project.masterPlugins[i].bypass = bypass
+    }
+
+    func movePlugin(_ id: UUID, by delta: Int) {
+        guard let i = project.masterPlugins.firstIndex(where: { $0.id == id }) else { return }
+        let j = i + delta
+        guard project.masterPlugins.indices.contains(j) else { return }
+        project.masterPlugins.swapAt(i, j)
     }
 
     var monitoredTracks: [Track] { project.tracks.filter(\.monitor) }
@@ -739,7 +774,9 @@ final class Session: ObservableObject {
         try ensureFolder()
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try enc.encode(project).write(to: folder!.appendingPathComponent("project.json"), options: .atomic)
+        var saved = project
+        saved.masterPlugins = playback.master.withState(project.masterPlugins)    // each plugin's own settings
+        try enc.encode(saved).write(to: folder!.appendingPathComponent("project.json"), options: .atomic)
         savedProject = project
     }
 

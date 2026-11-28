@@ -261,6 +261,11 @@ My Song/
   "loopEnabled": false, "loopStart": 0, "loopEnd": 8,
   "tempoValue": 120,          "beatsPerBarValue": 4,          // †
   "metronomeValue": false,    "countInValue": false,  "snapValue": false,   // †
+  "masterPluginsValue": [{                                   // † Audio Unit effects on the master output, in order
+    "id": "UUID", "name": "SonoBus", "maker": "Sonosaurus",
+    "type": 1635083896, "subtype": 0, "manufacturer": 0,     // AudioComponentDescription (FourCCs as UInt32)
+    "bypass": false, "state": "base64 binary plist"          // the plugin's fullState; on Windows use VST3 and skip AU entries
+  }],
   "tracks": [{
     "id": "UUID", "name": "Track 1",
     "inputChannel": 0, "stereoInput": false,                  // † stereo = channels 1+2

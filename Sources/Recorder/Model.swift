@@ -16,12 +16,14 @@ struct Project: Codable, Equatable {
     var metronomeValue: Bool?
     var countInValue: Bool?
     var snapValue: Bool?
+    var masterPluginsValue: [MasterPlugin]?
 
     var tempo: Double { get { tempoValue ?? 120 } set { tempoValue = min(300, max(30, newValue)) } }
     var beatsPerBar: Int { get { beatsPerBarValue ?? 4 } set { beatsPerBarValue = min(12, max(1, newValue)) } }
     var metronome: Bool { get { metronomeValue ?? false } set { metronomeValue = newValue } }
     var countIn: Bool { get { countInValue ?? false } set { countInValue = newValue } }
     var snap: Bool { get { snapValue ?? false } set { snapValue = newValue } }
+    var masterPlugins: [MasterPlugin] { get { masterPluginsValue ?? [] } set { masterPluginsValue = newValue.isEmpty ? nil : newValue } }
     var beatLength: Double { 60 / tempo }
     var barLength: Double { beatLength * Double(beatsPerBar) }
     /// Nearest beat to `time` when snapping is on.

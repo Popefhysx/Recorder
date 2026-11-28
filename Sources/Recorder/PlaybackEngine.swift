@@ -6,6 +6,7 @@ final class PlaybackEngine {
     let engine = AVAudioEngine()
     private(set) var strips: [UUID: Strip] = [:]
     let masterMeter = Meter()
+    private(set) lazy var master = MasterChain(engine: engine)
     var onConfigurationChange: (() -> Void)?
     var onDeviceLost: (() -> Void)?
 
@@ -122,7 +123,7 @@ final class PlaybackEngine {
         }
         outputDeviceID = target
         IOBuffer.set(engine.outputNode.audioUnit, frames: 128)
-        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: nil)
+        master.wire()
         if wasRunning && isMonitoring { engine.prepare(); try? engine.start() }
     }
 
@@ -132,7 +133,7 @@ final class PlaybackEngine {
         for strip in strips.values { strip.stop() }
         isPlaying = false
         engine.stop()
-        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: nil)
+        master.wire()
         onDeviceLost?()
         if isMonitoring { engine.prepare(); try? engine.start() }
         if wasPlaying { onConfigurationChange?() }
@@ -159,6 +160,7 @@ final class PlaybackEngine {
         }
         if resume { engine.prepare(); try? engine.start() }
         engine.mainMixerNode.outputVolume = project.masterVolume
+        master.sync(project.masterPlugins)
     }
 
     /// Starts every track at host time `at` from timeline `position`.

@@ -457,10 +457,27 @@ struct TimeDisplay: View {
 struct MasterPanel: View {
     @EnvironmentObject private var session: Session
     @EnvironmentObject private var levels: Levels
+    @State private var showPlugins = false
 
     var body: some View {
         VStack(spacing: 14) {
             Text("Master").font(.system(size: 17, weight: .bold))
+            let plugins = session.project.masterPlugins
+            Button { showPlugins.toggle() } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "puzzlepiece.extension").font(.system(size: 11))
+                    Text(plugins.isEmpty ? "Plugins" : "Plugins \(plugins.filter { !$0.bypass }.count)")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(plugins.contains { !$0.bypass } ? .white : Theme.text)
+                .padding(.horizontal, 10).frame(height: 26)
+                .background(Capsule().fill(plugins.contains { !$0.bypass } ? Theme.purple : .white))
+                .overlay(Capsule().strokeBorder(plugins.contains { !$0.bypass } ? .clear : Theme.border))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Audio Unit plugins on the master output, such as SonoBus to hear everything on your phone")
+            .popover(isPresented: $showPlugins, arrowEdge: .leading) { MasterPluginsView().environmentObject(session) }
             HStack(alignment: .bottom, spacing: 10) {
                 VerticalFader(gain: Binding(get: { session.project.masterVolume }, set: { session.project.masterVolume = $0 }))
                 LevelMeter(level: levels.master.0).frame(width: 9)

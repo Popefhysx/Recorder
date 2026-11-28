@@ -121,6 +121,50 @@ enum SelfTest {
         check(muted.master < 0.001, String(format: "live: mute silences the output (%.5f)", muted.master))
         onMain { session.project.tracks[0].mute = false; session.project.tracks[1].mute = false }
 
+        // Master plugin slot: an Apple high-pass on the master really filters the live output,
+        // bypass passes it through, and its settings save with the project.
+        do {
+            let hp = AudioComponentDescription(componentType: kAudioUnitType_Effect, componentSubType: kAudioUnitSubType_HighPassFilter,
+                                               componentManufacturer: kAudioUnitManufacturer_Apple, componentFlags: 0, componentFlagsMask: 0)
+            let component = onMain { AVAudioUnitComponentManager.shared().components(matching: hp).first }
+            check(component != nil && onMain { !PluginCatalog.effects().isEmpty }, "the plugin list finds the installed Audio Units")
+            if let component {
+                let id = onMain { () -> UUID in session.project.masterPlugins.append(MasterPlugin(component)); return session.project.masterPlugins[0].id }
+                for _ in 0..<50 where onMain({ session.playback.master.units[id] == nil }) { Thread.sleep(forTimeInterval: 0.1) }
+                let unit = onMain { session.playback.master.units[id] }
+                let wired = onMain { () -> Bool in
+                    let e = session.playback.engine
+                    return unit != nil && e.outputConnectionPoints(for: e.mainMixerNode, outputBus: 0).first?.node === unit
+                        && e.outputConnectionPoints(for: unit!, outputBus: 0).first?.node === e.outputNode
+                }
+                check(wired, "a master plugin loads and sits between the mix and the output")
+                func pluginPeak() -> Float {
+                    guard let unit else { return 0 }
+                    let meter = Meter()
+                    onMain { unit.installTap(onBus: 0, bufferSize: 1024, format: nil) { b, _ in meter.feed(b) } }
+                    _ = livePeak(0.8)
+                    onMain { unit.removeTap(onBus: 0) }
+                    return meter.take().0
+                }
+                onMain { unit?.auAudioUnit.parameterTree?.allParameters.first { $0.identifier.lowercased().contains("cutoff") || $0.address == 0 }?.value = 10000 }
+                let filtered = pluginPeak()
+                onMain { session.setPluginBypass(id, true) }
+                let bypassed = pluginPeak()
+                check(bypassed > 0.2 && filtered < bypassed * 0.5,
+                      String(format: "the master plugin processes the live output, and bypass passes it through (%.3f → %.3f)", filtered, bypassed))
+                try onMain { Result { try session.save() } }.get()
+                let saved = try JSONDecoder().decode(Project.self, from: Data(contentsOf: folder.appendingPathComponent("project.json")))
+                check(saved.masterPlugins.count == 1 && saved.masterPlugins[0].state != nil && saved.masterPlugins[0].bypass,
+                      "master plugins and their settings save with the project")
+                onMain { session.removePlugin(id) }
+                let unwired = onMain { () -> Bool in
+                    let e = session.playback.engine
+                    return session.playback.master.units.isEmpty && e.outputConnectionPoints(for: e.mainMixerNode, outputBus: 0).first?.node === e.outputNode
+                }
+                check(unwired, "removing the plugin connects the mix straight to the output again")
+            }
+        }
+
         // Monitoring: the mic track's input should reach its strip while the transport is stopped.
         let micID = onMain { session.project.tracks[0].id }
         onMain { session.project.tracks[1].mute = true; session.project.tracks[0].volume = 0.05; session.project.tracks[0].monitor = true }
