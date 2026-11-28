@@ -11,6 +11,9 @@ them, and export a WAV or M4A. A smaller Studio One, built for one person with o
   (20 Hz – 20 kHz), compressor, delay (tempo-synced) and reverb. Master plugins: up to 6 Audio Unit effects
   (Waves, SonoBus, Apple's, any AU) on the live output, each with its own window, bypass and saved
   settings. SonoBus there sends everything you hear to a phone. Exports don't include them yet.
+- **Also Send To:** a second output gets a copy of everything Recorder plays (after the master
+  plugins), for example a virtual cable (BlackHole, Loopback) that vMix, OBS or a call app uses as
+  its input, while you keep listening on headphones.
 - **Clean up:** Denoise learns a noise print (automatically, or from the loop region) and removes
   steady hiss and hum. Voice Clean uses DeepFilterNet (a neural model) to keep the voice and remove
   any noise behind it. Enhance voice (EQ polish, compression, leveling) and clip volume (normalize or

@@ -165,6 +165,34 @@ enum SelfTest {
             }
         }
 
+        // Also Send To: the send tap at the end of the master chain copies the live output into the
+        // send ring, without changing what the main output plays.
+        do {
+            let ring = MonitorRing()
+            let tapWired = onMain { () -> Bool in
+                session.playback.master.setSend(ring)
+                let e = session.playback.engine
+                guard let tap = session.playback.master.sendTap else { return false }
+                return e.outputConnectionPoints(for: e.mainMixerNode, outputBus: 0).first?.node === tap
+                    && e.outputConnectionPoints(for: tap, outputBus: 0).first?.node === e.outputNode
+            }
+            check(tapWired, "the send sits between the mix and the output")
+            let before = ring.written.load(ordering: .acquiring)
+            let main = livePeak(0.8)
+            let frames = ring.written.load(ordering: .acquiring) - before
+            var sent: Float = 0
+            ring.peek { sent = $0 }
+            check(frames > Int(Formats.rate * 0.5) && sent > 0.2 && main.master > 0.2,
+                  String(format: "the send gets a copy of the output (%d frames, peak %.3f) and the main output still plays", frames, sent))
+            check(!onMain { PluginCatalog.effects().contains { $0.name.contains("Recorder: Send") } }, "the send isn't listed as a plugin")
+            let removed = onMain { () -> Bool in
+                session.playback.master.setSend(nil)
+                let e = session.playback.engine
+                return session.playback.master.sendTap == nil && e.outputConnectionPoints(for: e.mainMixerNode, outputBus: 0).first?.node === e.outputNode
+            }
+            check(removed, "turning the send off connects the mix straight to the output again")
+        }
+
         // Monitoring: the mic track's input should reach its strip while the transport is stopped.
         let micID = onMain { session.project.tracks[0].id }
         onMain { session.project.tracks[1].mute = true; session.project.tracks[0].volume = 0.05; session.project.tracks[0].monitor = true }

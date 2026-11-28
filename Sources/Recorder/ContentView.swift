@@ -223,14 +223,29 @@ struct OutputPicker: View {
                     Text(d.name) + Text(session.preferredOutputUID == d.id ? "  ✓" : "")
                 }
             }
+            Divider()
+            Menu("Also Send To (vMix, OBS…)") {
+                Button { session.sendOutputUID = nil } label: { Text("Off") + Text(session.sendOutputUID == nil ? "  ✓" : "") }
+                Divider()
+                ForEach(session.outputs.filter { $0.objectID != session.playback.currentOutputDevice }) { d in
+                    Button { session.sendOutputUID = d.id } label: {
+                        Text(d.name) + Text(session.sendOutputUID == d.id ? "  ✓" : "")
+                    }
+                }
+            }
         } label: {
+            let sending = session.sendOutputUID != nil
             Image(systemName: "speaker.wave.2").font(.system(size: 16))
                 .frame(width: 40, height: 40)
-                .background(Circle().fill(.white)).overlay(Circle().strokeBorder(Theme.border))
+                .background(Circle().fill(.white)).overlay(Circle().strokeBorder(sending ? Theme.purple : Theme.border, lineWidth: sending ? 2 : 1))
+                .overlay(alignment: .topTrailing) {
+                    if sending { Circle().fill(Theme.purple).frame(width: 10, height: 10).overlay(Circle().strokeBorder(.white, lineWidth: 2)) }
+                }
                 .contentShape(Circle())
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-        .help("Output: \(session.outputName). Playback, the metronome and live monitoring play here. Pick USB Audio CODEC for the UMC22's headphones.")
+        .help("Output: \(session.outputName). Playback, the metronome and live monitoring play here."
+              + (session.sendName.map { " Also sending to \($0)." } ?? " Also Send To copies it to a second device, such as a virtual cable for vMix."))
     }
 }
 

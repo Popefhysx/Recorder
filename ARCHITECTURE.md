@@ -27,7 +27,7 @@ components:
   - id: playback
     name: Playback engine
     kind: pipeline
-    does: One Strip per track (boost, gate, 9-band EQ, comp, delay, reverb, fader) to the output, through any master Audio Unit plugins (SonoBus, Waves, Apple; live only, not in exports); metronome
+    does: One Strip per track (boost, gate, 9-band EQ, comp, delay, reverb, fader) to the output, through any master Audio Unit plugins (SonoBus, Waves, Apple; live only, not in exports); optional send tap copying the output to a second device (SendOutput); metronome
     status: live
     breaks: {severity: critical, effect: "No playback, monitoring or export", fails: [export]}
   - id: input

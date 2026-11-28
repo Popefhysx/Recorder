@@ -221,6 +221,19 @@ Non-destructive auto-edit (`SilenceRemoval.swift`). It reads the waveform peaks 
 - **"Close the gaps":** moves every clip on the track earlier by the total silence removed before it.
 - **Undo:** it is a single undo step.
 
+### Master plugins and Also Send To
+
+- **Master plugins:** up to 6 effects between the master mix and the output, in order, each with
+  bypass, its own editor window and its state saved in the project. On Windows host **VST3** with
+  `juce::AudioPluginFormatManager` (Waves and SonoBus ship VST3) and save `getStateInformation()`
+  as base64. Live only; exports don't include them yet.
+- **Also Send To:** a copy of the final output (after the plugins) goes to a second output
+  device while the main output keeps playing. The Mac app copies each buffer into a lock-free ring
+  in the real-time callback and a second device plays it, resampling and absorbing clock drift
+  (about 256 frames behind). On Windows, open a second `juce::AudioIODevice` for the send device and
+  feed it from the same kind of ring. With **VB-Cable** as the send device, vMix (or OBS) picks
+  "CABLE Output" as an audio input.
+
 ## 6. Safety and recovery
 
 - **Before recording:** refuse unless free space ≥ 2 minutes of audio for the armed channels

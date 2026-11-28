@@ -82,7 +82,7 @@ export one audio file.
 | Save ▾ | Saves the project. Arrow menu: New Project, Open Project…, Save As…, Show Project in Finder (Explorer on Windows), Import Audio…, Delete Unused Recordings…, Keyboard Shortcuts… | Label "Save" (unsaved changes) or "Saved" with a tick |
 | Input ▾ | Picks the audio input device. Shows the device name and small live meters for inputs 1 and 2 | Normal; "Input missing — using default"; mic-off icon when input is off |
 | Mic on/off | Switches the input off so the interface makes no noise | On: white with mic icon. Off: red with crossed-out mic |
-| Output ▾ (speaker icon) | Picks where sound plays (headphones / speakers) | Menu with a tick on the current one |
+| Output ▾ (speaker icon) | Picks where sound plays (headphones / speakers). Submenu **Also Send To (vMix, OBS…)**: Off, or a second device that gets a copy of the output | Menu with a tick on the current one. While sending: purple ring and a purple dot on the button |
 | Settings (gear) | Popover: timeline zoom slider; loop range (Start at Playhead, End at Playhead, and the times) | — |
 
 ### 4.2 Tracks column

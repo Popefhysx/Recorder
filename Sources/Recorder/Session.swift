@@ -108,8 +108,33 @@ final class Session: ObservableObject {
         inputOff = true
     }
 
+    /// "Also send to": a second output that gets a copy of everything Recorder plays (for vMix,
+    /// OBS or a call app through a virtual cable). nil = off.
+    @Published var sendOutputUID: String? = UserDefaults.standard.string(forKey: "sendOutputUID") {
+        didSet { UserDefaults.standard.set(sendOutputUID, forKey: "sendOutputUID"); applySend() }
+    }
+    private var sendEnabled = false
+
+    var sendName: String? { sendOutputUID.map { uid in outputs.first { $0.id == uid }?.name ?? "missing device" } }
+
+    func applySend() {
+        guard sendEnabled else { return }
+        let device = sendOutputUID.flatMap { uid in outputs.first { $0.id == uid } }
+        guard let device else {
+            try? playback.setSend(nil)
+            if sendOutputUID != nil { problem = "The send output isn't connected. Recorder will send to it again when it's back." }
+            return
+        }
+        if device.objectID == playback.currentOutputDevice {
+            try? playback.setSend(nil)
+            problem = "\(device.name) is already the main output. Pick a different device to send to."
+            return
+        }
+        do { try playback.setSend(device.objectID) } catch { problem = error.localizedDescription }
+    }
+
     @Published var preferredOutputUID: String? = UserDefaults.standard.string(forKey: "outputUID") {
-        didSet { UserDefaults.standard.set(preferredOutputUID, forKey: "outputUID"); applyOutput(force: true) }
+        didSet { UserDefaults.standard.set(preferredOutputUID, forKey: "outputUID"); applyOutput(force: true); applySend() }
     }
     @Published private(set) var inputName = "—"
     @Published private(set) var inputChannels = 2
@@ -146,6 +171,8 @@ final class Session: ObservableObject {
         playback.onDeviceLost = { [weak self] in DispatchQueue.main.async { self?.applyOutput(force: true) } }
         outputs = AudioDevices.outputDevices()
         applyOutput(force: true)
+        sendEnabled = startTimer         // the self-test's extra sessions never send
+        applySend()
         devices = AudioDevices.inputDevices()
         inputChannels = activeDevice?.channels ?? 2
         AudioDevices.observeChanges { [weak self] in self?.devicesChanged() }
@@ -655,6 +682,7 @@ final class Session: ObservableObject {
     private func devicesChanged() {
         outputs = AudioDevices.outputDevices()
         applyOutput()
+        applySend()
         devices = AudioDevices.inputDevices()
         if !isRecording {
             refreshInputDevice()

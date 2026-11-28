@@ -37,6 +37,7 @@ enum PluginCatalog {
             AVAudioUnitComponentManager.shared().components(matching: AudioComponentDescription(
                 componentType: type, componentSubType: 0, componentManufacturer: 0, componentFlags: 0, componentFlagsMask: 0))
         }
+        .filter { $0.audioComponentDescription.componentManufacturer != SendTapUnit.desc.componentManufacturer }
         .sorted { ($0.manufacturerName, $0.name) < ($1.manufacturerName, $1.name) }
     }
 }
@@ -54,8 +55,27 @@ final class MasterChain {
 
     init(engine: AVAudioEngine) { self.engine = engine }
 
-    /// The loaded plugins in order (the ones still loading are skipped until they're ready).
-    var chain: [AVAudioUnit] { wanted.compactMap { units[$0.id] } }
+    /// The pass-through that copies the output to the send ring (last in the chain), when sending.
+    private(set) var sendTap: AVAudioUnit?
+
+    /// The loaded plugins in order (the ones still loading are skipped until they're ready),
+    /// then the send tap.
+    var chain: [AVAudioUnit] { wanted.compactMap { units[$0.id] } + (sendTap.map { [$0] } ?? []) }
+
+    /// Adds or removes the send tap at the end of the chain.
+    func setSend(_ ring: MonitorRing?) {
+        guard (ring != nil) != (sendTap != nil) else { return }
+        changeGraph {
+            if let tap = sendTap { engine.disconnectNodeOutput(tap); engine.detach(tap); sendTap = nil }
+            if let ring {
+                _ = SendTapUnit.registered
+                let tap = AVAudioUnitEffect(audioComponentDescription: SendTapUnit.desc)
+                (tap.auAudioUnit as? SendTapUnit)?.ring = ring
+                engine.attach(tap)
+                sendTap = tap
+            }
+        }
+    }
 
     func sync(_ list: [MasterPlugin]) {
         wanted = list
@@ -111,6 +131,7 @@ final class MasterChain {
         let format = AVAudioFormat(standardFormatWithSampleRate: rate > 0 ? rate : Formats.rate, channels: 2)
         engine.disconnectNodeOutput(engine.mainMixerNode)
         for u in units.values { engine.disconnectNodeOutput(u) }
+        if let sendTap { engine.disconnectNodeOutput(sendTap) }
         var previous: AVAudioNode = engine.mainMixerNode
         for u in chain {
             engine.connect(previous, to: u, format: format)

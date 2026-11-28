@@ -7,6 +7,15 @@ final class PlaybackEngine {
     private(set) var strips: [UUID: Strip] = [:]
     let masterMeter = Meter()
     private(set) lazy var master = MasterChain(engine: engine)
+    let send = SendOutput()
+
+    /// Sends a copy of the output to `device` as well (nil = stop sending).
+    func setSend(_ device: AudioObjectID?) throws {
+        guard let device else { send.stop(); master.setSend(nil); return }
+        if send.device == device, send.isRunning { return }
+        try send.start(device: device)
+        master.setSend(send.ring)
+    }
     var onConfigurationChange: (() -> Void)?
     var onDeviceLost: (() -> Void)?
 

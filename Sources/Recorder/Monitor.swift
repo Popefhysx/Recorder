@@ -29,6 +29,13 @@ final class MonitorRing: @unchecked Sendable {
         written.store(start + frames, ordering: .releasing)
     }
 
+    /// The loudest sample currently held (for tests).
+    func peek(_ body: (Float) -> Void) {
+        var m: Float = 0
+        for i in 0..<(Self.capacity * Self.channels) { m = max(m, abs(data[i])) }
+        body(m)
+    }
+
     /// A stereo source node that plays live input while `mode` says so: `MonitorMode.off`,
     /// `.stereo` (inputs 1+2), or an input index (mono, sent to both sides). It stays about `lag`
     /// output frames behind the newest input and skips ahead or pads with silence if the input and
