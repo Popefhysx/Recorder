@@ -92,6 +92,7 @@ struct ModeTabs: View {
                     .padding(.horizontal, 14).frame(height: 38)
             }
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .help("Make one finished audio file of the mix, to share or upload. Save keeps the project itself, with every track, so you can keep editing.")
         }
         .padding(4)
         .background(Capsule().fill(Theme.background))
@@ -125,17 +126,17 @@ struct SaveControls: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Save the project (⌘S)")
+            .help("Save the project (⌘S): every track and edit, so you can open it and keep working. To get one audio file to share, use Export.")
             Rectangle().fill(Theme.border).frame(width: 1, height: 22)
             Menu {
                 Button("New Project") { session.newProject() }
                 Button("Open Project…") { session.runOpenPanel() }
                 Button("Save As…") { session.runSaveAsPanel() }
+                if let folder = session.folder {
+                    Button("Show Project in Finder") { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
+                }
                 Divider()
                 Button("Import Audio…") { session.runImportPanel() }
-                Divider()
-                Button("Export Mix as WAV…") { session.runExportPanel(.wav) }
-                Button("Export Mix as M4A…") { session.runExportPanel(.m4a) }
                 Divider()
                 HStack {
                 Button("Delete Unused Recordings…") { session.runCleanUp() }
@@ -255,18 +256,6 @@ struct SettingsPopover: View {
     @EnvironmentObject private var session: Session
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Project").font(.headline)
-            HStack {
-                Button("New") { session.newProject() }
-                Button("Open…") { session.runOpenPanel() }
-                Button("Save") { session.saveOrAsk() }
-                Button("Save As…") { session.runSaveAsPanel() }
-            }
-            Button("Delete Unused Recordings…") { session.runCleanUp() }
-            if let folder = session.folder {
-                Text(folder.path).font(.caption).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
-            }
-            Divider()
             Text("Timeline zoom").font(.headline)
             Slider(value: Binding(get: { log(session.pointsPerSecond) }, set: { session.pointsPerSecond = exp($0) }),
                    in: log(5)...log(800))
